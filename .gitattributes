@@ -1,0 +1,4 @@
+# Normalize line endings to LF in the repository and in the working tree.
+# Chunking tests depend on exact character offsets, and CRLF vs LF would
+# change them between Windows and the Linux CI runners.
+* text=auto eol=lf
