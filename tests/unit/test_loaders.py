@@ -47,7 +47,8 @@ def test_arabic_letter_variants_are_not_folded(tmp_path: Path, letter: str) -> N
 
 
 def test_unicode_is_not_normalized(tmp_path: Path) -> None:
-    decomposed = "أ"  # alef + combining hamza above, NOT the composed أ (U+0623)
+    # alef + combining hamza above: NFC would compose these into the single letter أ.
+    decomposed = "\N{ARABIC LETTER ALEF}\N{ARABIC HAMZA ABOVE}"
     path = write_utf8(tmp_path / "decomposed.txt", decomposed)
 
     loaded = load_document(path).pages[0].text
@@ -70,7 +71,7 @@ def test_utf8_bom_is_stripped(tmp_path: Path) -> None:
     text = load_document(path).pages[0].text
 
     assert text == "مرحبا"
-    assert not text.startswith("﻿")
+    assert not text.startswith("\N{ZERO WIDTH NO-BREAK SPACE}")
 
 
 def test_line_endings_are_left_untouched(tmp_path: Path) -> None:
