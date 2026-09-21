@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pypdfium2 as pdfium
 
+from bilingual_rag.ingestion.docx_reader import DocxFormatError, read_docx_pages
 from bilingual_rag.ingestion.models import Document, Page
 
 
@@ -75,10 +76,25 @@ def _pdf_page_text(page: pdfium.PdfPage) -> str:
         page.close()
 
 
+def _load_docx(path: Path) -> Document:
+    """Load a Word document. Pages are approximate; see :mod:`docx_reader` for how.
+
+    Word stores text in logical order, so this is the most reliable way to ingest Arabic
+    source documents (see docs/pdf-extraction.md for how PDF compares).
+    """
+    try:
+        texts = read_docx_pages(path.read_bytes())
+    except DocxFormatError as exc:
+        raise DocumentLoadError(f"{path.name} could not be read as a .docx file: {exc}") from exc
+    pages = tuple(Page(number=number, text=text) for number, text in enumerate(texts, start=1))
+    return Document(filename=path.name, pages=pages)
+
+
 _LOADERS: dict[str, Callable[[Path], Document]] = {
     ".txt": _load_text,
     ".md": _load_text,
     ".pdf": _load_pdf,
+    ".docx": _load_docx,
 }
 
 

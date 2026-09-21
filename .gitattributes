@@ -6,3 +6,4 @@
 # Binary fixtures: never let Git rewrite their bytes (a PDF can look like text to auto-detection).
 *.pdf binary
 *.png binary
+*.docx binary
