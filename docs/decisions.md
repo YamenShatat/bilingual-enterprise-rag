@@ -278,3 +278,52 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
 - **Not decided yet:** the embedding model wrapper, the ingestion script, and the vector search
   query. No ANN index will be added until the corpus justifies one.
 - **Status:** Accepted.
+
+## D-013: An embedder interface, a deterministic stand-in, and batched embedding of stored chunks
+
+- **Decision:**
+  - **Interface** (`embeddings/base.py`): an `Embedder` has a `key` (its table name, for example
+    `bge_m3`), a `model_name`, a `dimension`, `embed_documents(texts)` and `embed_query(text)`.
+    Vectors have unit length, so cosine distance and inner product order results the same way. Any
+    model-specific prefix (E5 needs `query: ` and `passage: `) is added inside the embedder, never
+    by the caller, and an embedder embeds exactly the text it is given.
+  - **Checks:** `validate_vectors` verifies the count, the size and finiteness of what an embedder
+    returned before it is stored, and `normalize` refuses zero and non-finite vectors.
+  - **Stand-in** (`embeddings/hashing.py`): `HashingEmbedder` hashes each word (SHA-256) to a
+    position in the vector. It exists so storage, ranking and access control can be tested without
+    a model or a download.
+  - **Indexing** (`embeddings/indexing.py`): `embed_missing(conn, embedder)` registers the model,
+    finds the chunks that have no vector for it, and embeds and stores them in batches. It is safe
+    to call again after adding documents, and after a failure it resumes where it stopped.
+- **Change from the earlier plan:** the interface also carries `key`, so the caller does not have
+  to invent a table name.
+- **Why:**
+  - *Prefixes and exact text belong to the embedder,* so no caller can forget them and no
+    pre-processing sneaks in between the stored chunk and the model (D-004).
+  - *Validate what comes back:* Python's `zip` silently drops the surplus, so a model that returned
+    one vector too few would leave a chunk unembedded, or attach a vector to the wrong chunk,
+    without an error.
+  - *A deterministic stand-in instead of random vectors,* so tests of ranking can assert that a
+    query finds the chunk that shares its words. It uses SHA-256 and not Python's `hash`, which
+    differs in every process; a test runs it under three hash seeds.
+  - *`embed_missing` reads chunks of every access level on purpose.* Embedding is a trusted
+    ingestion step that must cover restricted documents too. The embeddings tables carry no access
+    level, so the search query must join each vector to its document and filter there (step 4).
+- **The stand-in is not semantic, and this is measured, not assumed.** On the real corpus, queries
+  that share words with a document find it (an Arabic query for the annual leave policy ranks the
+  Arabic policy first), but the English query "overtime pay rates" does not bring the Arabic-only
+  overtime policy into the top five, because the answer shares no words with it. A test records
+  this on purpose. It must never be used to judge retrieval quality; that needs a real multilingual
+  model, and is the Week 3 experiment.
+- **Limits, stated openly:**
+  - No real model exists yet, so no claim about retrieval quality is made anywhere.
+  - `embed_missing` does not commit; the caller commits, for example from the `on_batch` callback.
+  - Embedding is done in one process, with no parallelism and no retry of a failed batch.
+- **Validation:** 111 new tests (821 in the suite). Twenty-seven deliberate breakages of the
+  interface helpers, the stand-in and the indexing were each caught by a test. That includes
+  removing the validation of vector counts, swapping SHA-256 for the per-process `hash`, and
+  quietly stripping, lower-casing or NFKC-normalizing the text before embedding. The mutation run
+  also drove a strengthening of the "text is embedded exactly as stored" test: its first version
+  had no leading whitespace and no capital letters, so by inspection it could not have caught a
+  stray `strip()` or `lower()`; it now can.
+- **Status:** Accepted. The real model, and how its inputs are tokenized and truncated, comes next.

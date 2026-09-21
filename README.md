@@ -46,7 +46,8 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Synthetic corpus: 32 bilingual documents in four formats with a manifest (see [`docs/dataset.md`](docs/dataset.md))
 - [x] PostgreSQL + pgvector in Docker (database only), settings from environment variables, health check (see [`docs/decisions.md`](docs/decisions.md) D-011)
 - [x] Database schema: versioned migrations, documents and chunks with manifest metadata, one embedding table per model, access-level-filtered reads (see [`docs/decisions.md`](docs/decisions.md) D-012)
-- [ ] Embedding model, ingestion script and vector search
+- [x] Embedder interface, a deterministic stand-in embedder and batched embedding of stored chunks (see D-013; the stand-in is lexical and says nothing about retrieval quality)
+- [ ] Real multilingual embedding model, ingestion script and vector search
 - [ ] Retrieval evaluation
 - [ ] RAG with citations
 - [ ] FastAPI backend
