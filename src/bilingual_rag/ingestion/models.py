@@ -16,6 +16,24 @@ class Page:
 
 
 @dataclass(frozen=True, slots=True)
+class Chunk:
+    """A contiguous slice of one page, small enough to embed and retrieve.
+
+    ``text`` is always exactly ``page_text[start:end]``, so offsets can be used to
+    highlight the passage in its source. ``index`` is the 0-based position of the
+    chunk within its page. A chunk never spans more than one page, so ``page`` is
+    always a valid citation.
+    """
+
+    filename: str
+    page: int
+    index: int
+    text: str
+    start: int
+    end: int
+
+
+@dataclass(frozen=True, slots=True)
 class Document:
     """A loaded source document, before cleaning or chunking."""
 
