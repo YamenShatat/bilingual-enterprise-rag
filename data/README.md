@@ -4,29 +4,23 @@ This folder holds the documents used to develop and evaluate the system.
 
 **Synthetic dataset created for demonstration purposes. No confidential company data is included.**
 
-The corpus describes a fictional company, *Acme MENA Technology*, and deliberately mixes
-English-only, Arabic-only and bilingual documents so that all four retrieval directions
-(EN→EN, AR→AR, AR→EN, EN→AR) can be evaluated.
+The corpus describes a fictional company, *Acme MENA Technology*: 32 documents in English and
+Arabic, deliberately mixing bilingual pairs, English-only and Arabic-only documents so that all
+four retrieval directions (EN→EN, AR→AR, AR→EN, EN→AR) can be evaluated. The full description,
+coverage, designed traps and limitations are in [`docs/dataset.md`](../docs/dataset.md).
 
 ## Layout
 
 ```text
-data/synthetic/<department>/<document>_<language>.md
+data/
+├── manifest.json        one entry per document (language, format, department, access, pair)
+├── synthetic/<dept>/    the corpus that gets ingested: <topic>_<language>.<ext>
+└── sources/<dept>/      Markdown sources for the DOCX and PDF documents
 ```
 
-The department folder will become the `department` metadata field, and the `_en` / `_ar`
-suffix marks the document language.
-
-## Current documents (4 so far; the target is roughly 30-50)
-
-| Document | Language | Notes |
-| --- | --- | --- |
-| `hr/annual_leave_policy_en.md` | English | Bilingual pair with the Arabic version |
-| `hr/annual_leave_policy_ar.md` | Arabic | Same policy; uses Arabic-Indic digits (٢١) |
-| `hr/remote_work_policy_en.md` | English | English-only content |
-| `security/password_policy_ar.md` | Arabic | Arabic-only content; uses Western digits (14) and an embedded email address |
-
-The two Arabic documents deliberately use different digit systems, because both occur in
-real Arabic business documents and retrieval has to cope with either.
-
-Files are UTF-8 without a BOM and use LF line endings; an integration test enforces this.
+- Markdown and plain-text documents live in `synthetic/` and are edited directly.
+- DOCX documents are **generated**: edit the Markdown in `sources/`, then run
+  `python scripts/build_corpus_docx.py` (add `--check` to verify without writing).
+- PDF documents are exported from Microsoft Word; see `scripts/export_pdfs_with_word.ps1`.
+- Text files are UTF-8 without a BOM with LF line endings, enforced by a test. Tests also
+  check that the manifest matches the files and that bilingual pairs state the same numbers.
