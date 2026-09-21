@@ -159,3 +159,52 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   `docs/dataset.md`.
 - **Status:** Accepted. Grow it (and add harder distractors) before drawing conclusions from
   the Week 3 benchmark.
+
+## D-011: PostgreSQL with pgvector, run in Docker, database only
+
+- **Decision:** chunks, their metadata and their embeddings will live in one PostgreSQL
+  database with the pgvector extension. Locally it runs from `docker-compose.yml` as a single
+  `db` service using the image `pgvector/pgvector:0.8.6-pg17` (pgvector 0.8.6 on PostgreSQL 17).
+  The application is not containerized yet (Week 8). Python talks to it with `psycopg` 3
+  directly, with no ORM, and reads its settings from `POSTGRES_*` environment variables.
+- **Alternatives:** a dedicated vector database (Qdrant, Weaviate, Chroma), an in-process index
+  such as FAISS, or PostgreSQL installed natively on Windows.
+- **Why one PostgreSQL:** the permission rule of this project is that unauthorized text must
+  never reach the language model. With vectors and metadata in the same database, the
+  access-level filter and the similarity ordering happen in a single SQL statement, inside one
+  transaction, instead of being reconciled across two systems. It also makes the hybrid search
+  planned for Week 6 possible without a second service (whether PostgreSQL's built-in full-text
+  search handles Arabic well enough is still to be tested).
+  The corpus is 46 chunks, so any of the alternatives would be fast enough; the choice is about
+  the architecture, and no speed or scale claim is made for it.
+- **Why Docker:** pgvector has no official Windows installer, and the container is what the
+  final `docker compose up` will use. Docker Desktop is proprietary software under Docker's
+  subscription agreement, so anyone reusing this setup should check that their use qualifies;
+  any Docker engine runs the same compose file.
+- **Choices made and why:**
+  - the image tag is pinned to an exact version and PostgreSQL 17 was chosen over 18, whose
+    images moved both `PGDATA` and the volume path (checked against the upstream Dockerfiles),
+    so the mount stays conventional;
+  - the port is published on `127.0.0.1` only, so the database is not reachable from the
+    network;
+  - `POSTGRES_PASSWORD` is required and has no default anywhere, and `.env` is ignored by Git;
+  - the client encoding is set to UTF-8 explicitly, because Arabic must not depend on the
+    Windows locale. A test sets `PGCLIENTENCODING=LATIN1` in the environment and checks the
+    connection still uses UTF-8;
+  - `.env` is read by a small standard-library parser, not `python-dotenv`, and real
+    environment variables override it. Docker Compose reads the same file and treats quotes
+    and `#` slightly differently, so secrets should be plain letters and digits.
+- **Dependency:** `psycopg[binary]` (LGPL-3.0, used unmodified as an installed library, bundles
+  libpq so nothing else needs installing). The standard library has no PostgreSQL driver.
+- **Tests that need the database** are marked `database` and skip with a clear reason when it
+  is unreachable. With `RAG_REQUIRE_DATABASE=1` (CI should set this) they fail instead, because
+  a test that silently never runs proves nothing. They run inside a rolled-back transaction.
+- **Validation:** `scripts/check_database.py` connected to PostgreSQL 17.11 with pgvector
+  0.8.6, and a cosine-distance query returned exactly 1 for orthogonal vectors (the L2, inner
+  product and L1 operators return different values, so the check cannot pass by accident). The
+  health check enables the extension inside a savepoint and rolls it back; the database was
+  inspected afterwards and contained no extra extension or table. Thirteen deliberate
+  breakages of the code and of the compose file were each caught by a test.
+- **Not decided yet:** the schema, migrations, embedding storage and any vector index. With
+  46 chunks an exact scan is enough, and no index will be added until the corpus justifies it.
+- **Status:** Accepted.
