@@ -41,9 +41,10 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
 - **Why:** each of these changes meaning or citation fidelity for some words, and whether
   they help retrieval is an empirical question for the chosen embedding model. They will be
   tested as options in the Week 3 evaluation, not applied on assumption.
-- **Open item:** Arabic presentation forms (U+FB50-FEFF) sometimes appear in PDF
-  extraction. NFKC would fix them but also rewrites unrelated characters. To be decided
-  when the PDF loader exists and real extractor output can be inspected.
+- **Resolved (see D-008):** Arabic presentation forms (U+FB50-FEFF) appear in the output of
+  some PDF extractors. The chosen extractor, PDFium, already returns base letters on both
+  test producers, so no NFKC step is needed. NFKC would also rewrite unrelated characters,
+  so revisit only if a future extractor emits presentation forms.
 - **Status:** Accepted for now; revisit with measurements.
 
 ## D-005: Invisible characters are removed from an explicit list
@@ -86,3 +87,23 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   must be identical on Windows and Linux, and one bad file must not hide the rest of a
   corpus. "No text after cleaning" will matter for scanned PDFs.
 - **Status:** Accepted.
+
+## D-008: PDFs are read with PDFium (pypdfium2)
+
+- **Decision:** `.pdf` files are loaded with `pypdfium2`, one `Page` per PDF page. Blank
+  pages are kept as empty pages so page numbers stay correct, and files with no text at all
+  are reported as skipped by the pipeline.
+- **Alternatives:** `pypdf` (pure Python, no dependencies), `pdfminer.six`, and PyMuPDF
+  (AGPL-3.0, so not compatible with an MIT project).
+- **Why:** measured on Arabic/English PDFs from Word and Chromium, only PDFium kept
+  Arabic-Indic numbers correct on both. `pypdf` and PyMuPDF turned `٢١` into `١٢`, which
+  silently changes facts such as "21 days". PDFium also had the best word recall on the Word
+  PDF (90%). Full method and numbers: `docs/pdf-extraction.md`.
+- **Cost:** the project's first runtime dependency (8 MB binary). On Windows the virtual
+  environment path must be short, because `pypdfium2` fails to install past the 260-character
+  path limit.
+- **Known limits:** Arabic word order within a line, lam-alef ligature swaps, displaced
+  tanween, and poor results on Chromium-generated PDFs. Prefer DOCX or native text for Arabic
+  source documents; OCR or a layout model is a later option.
+- **Status:** Provisional. The evidence is two producers and a few sentences, and PDF-derived
+  questions should be part of the evaluation set so any loss shows up as a measured drop.

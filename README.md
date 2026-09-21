@@ -41,7 +41,8 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 
 - [x] Repository, license, Python project configuration, test and lint tooling
 - [x] TXT / Markdown loading, Arabic-safe cleaning, chunking and an ingestion pipeline
-- [ ] PDF and DOCX loaders
+- [x] PDF loader (Arabic extraction has known limits, see [`docs/pdf-extraction.md`](docs/pdf-extraction.md))
+- [ ] DOCX loader
 - [ ] Full synthetic corpus (4 of roughly 30-50 documents so far)
 - [ ] Embeddings and vector search
 - [ ] Retrieval evaluation
@@ -57,7 +58,9 @@ TBD — benchmark not run yet.
 
 ## Development setup (Windows / PowerShell)
 
-Requires Python 3.12 or newer.
+Requires Python 3.12 or newer. Keep the path to the virtual environment short: the PDF
+dependency (`pypdfium2`) ships deeply nested files and fails to install when the total path
+exceeds Windows' 260-character limit.
 
 ```powershell
 git clone https://github.com/YamenShatat/bilingual-enterprise-rag.git
