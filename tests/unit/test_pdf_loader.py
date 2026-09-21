@@ -1,41 +1,21 @@
 """PDF loader tests, using real PDFs from Microsoft Word and Chromium (see fixtures README)."""
 
-import re
 import shutil
 from pathlib import Path
 
 import pytest
 
 from bilingual_rag.ingestion.loaders import DocumentLoadError, load_document
+from support.arabic import arabic_word_recall
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "pdf"
 WORD_PDF = FIXTURES / "bilingual_word.pdf"
 CHROMIUM_PDF = FIXTURES / "bilingual_chromium.pdf"
 SCAN_PDF = FIXTURES / "image_only_scan.pdf"
 
-# The Arabic sentences the two bilingual fixtures were built from (ground truth).
-ARABIC_TRUTH = [
-    "سياسة الإجازة السنوية",
-    "يحصل الموظف على ٢١ يومًا من الإجازة السنوية بعد إنهاء فترة التجربة.",
-    "يجب تقديم الطلب عبر بوابة الموارد البشرية قبل ١٠ أيام عمل.",
-    "أهلاً بكم في شركة أكمي، آمل أن تكون على ما يرام في مدرسة الهدى.",
-    "للاتصال بالشبكة الداخلية استخدم VPN ثم افتح Cisco AnyConnect.",
-]
-
 # Measured on the Word fixture with pypdfium2 5.13: 90% word recall. The guard sits a
 # little below the measurement so it flags real regressions, not noise.
 MIN_WORD_RECALL = 0.85
-
-
-def words(text: str) -> list[str]:
-    return [w for w in re.sub(r"[.,،:;؛؟?!()]", " ", text).split() if w]
-
-
-def arabic_word_recall(document_text: str) -> float:
-    """Share of ground-truth words that appear intact, ignoring their order."""
-    expected = [w for line in ARABIC_TRUTH for w in words(line)]
-    found = set(words(document_text))
-    return sum(word in found for word in expected) / len(expected)
 
 
 def full_text(path: Path) -> str:
