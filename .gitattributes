@@ -2,3 +2,7 @@
 # Chunking tests depend on exact character offsets, and CRLF vs LF would
 # change them between Windows and the Linux CI runners.
 * text=auto eol=lf
+
+# Binary fixtures: never let Git rewrite their bytes (a PDF can look like text to auto-detection).
+*.pdf binary
+*.png binary
