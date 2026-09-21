@@ -100,8 +100,9 @@ def test_unicode_is_not_normalized() -> None:
     assert len(clean_text(decomposed)) == 2
 
 
-def test_arabic_presentation_forms_are_left_for_the_pdf_stage() -> None:
-    # NFKC would rewrite this to the two letters لا; deferred until we see real PDF output.
+def test_arabic_presentation_forms_are_not_normalized_by_the_cleaner() -> None:
+    # NFKC would rewrite this to the two letters لا. The PDF extractor (PDFium) already
+    # returns base letters, so no NFKC step is needed; revisit if an extractor emits these.
     lam_alef_isolated = "\N{ARABIC LIGATURE LAM WITH ALEF ISOLATED FORM}"
 
     assert clean_text(lam_alef_isolated) == lam_alef_isolated
