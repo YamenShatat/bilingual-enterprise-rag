@@ -107,3 +107,28 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   source documents; OCR or a layout model is a later option.
 - **Status:** Provisional. The evidence is two producers and a few sentences, and PDF-derived
   questions should be part of the evaluation set so any loss shows up as a measured drop.
+
+## D-009: DOCX is read with the standard library, not python-docx
+
+- **Decision:** `.docx` files are read by `ingestion/docx_reader.py` using `zipfile` and
+  `xml.etree`. No dependency is added.
+- **Alternatives:** `python-docx` (pulls in `lxml`), or converting through Word/LibreOffice.
+- **Why:** the format is a ZIP of XML with text in reading order, so a reader under 200 lines
+  (docstring included) covers what a policy corpus needs, and gives control over things a
+  generic library does not handle for us: tracked deletions, text boxes that Word writes twice, table rows kept as
+  `cell | cell` lines, and page markers. A DOCX read this way returned 100% of the Arabic
+  words and both numbers on the Word fixture, against 90% for the PDF of the same content
+  (see `docs/pdf-extraction.md`).
+- **Untrusted input:** the archive is size-capped, any document containing a DTD is rejected
+  (this blocks entity-expansion attacks; Word never writes one), and password-protected or
+  damaged files raise `DocumentLoadError` instead of crashing a directory run.
+- **Pages are approximate.** A DOCX has no fixed pages. They are derived from explicit page
+  breaks and from the `lastRenderedPageBreak` markers Word saves. Files not saved by Word may
+  come out as one page, so a DOCX citation's page number is a best guess, not a guarantee.
+- **Not extracted:** headers, footers, footnotes, endnotes, comments, and list numbers or
+  bullets (Word does not store them in the text). Legacy `.doc` and macro-enabled `.docm` are
+  not supported.
+- **Validation:** unit tests over hand-built XML for each construct, an exact-text test on a
+  real Word document, and 13 injected bugs, all caught (including removal of the DTD check and
+  of the size cap).
+- **Status:** Accepted. Revisit if the corpus needs footnotes or list numbering.
