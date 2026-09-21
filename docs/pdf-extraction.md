@@ -76,13 +76,27 @@ Observed on the Word PDF (`السنوية اإلجازة سياسة` is what PDF
 Consequences for the project:
 
 - **Prefer DOCX or native text for Arabic source documents.** They store the exact text, so
-  none of the above applies. This is why the DOCX loader is next.
+  none of the above applies (see the comparison below).
 - A PDF-derived Arabic answer must not be treated as more trustworthy than the extraction
   quality allows. The evaluation set should include PDF-derived questions so any loss shows
   up as a measured recall drop, not a surprise.
 - Real fixes are OCR or a layout/vision model, evaluated in a later phase. Heuristic
   reordering was deliberately not added: it was tuned on only two producers and would corrupt
   PDFs that already extract correctly.
+
+## The same content as DOCX
+
+The Word fixture was also saved as a `.docx` (`tests/fixtures/docx/bilingual_word.docx`, same
+sentences plus a small table on the English and Arabic pages) and read with the DOCX loader.
+Both numbers below are enforced by tests, not just measured once.
+
+| Same Word content | Arabic word recall | Numbers `٢١` and `١٠` | Word order in a line |
+| --- | --- | --- | --- |
+| PDF read with pypdfium2 | 90% | 2/2 | visual (reversed) |
+| **DOCX read with the DOCX loader** | **100%** | **2/2** | reading order |
+
+Every sentence comes back verbatim, lam-alef words and tanween included, and the tables become
+`cell | cell` rows (for example `الإجازة السنوية | ٢١`). See decision D-009.
 
 ## Reproducing
 

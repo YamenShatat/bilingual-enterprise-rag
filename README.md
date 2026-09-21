@@ -42,7 +42,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Repository, license, Python project configuration, test and lint tooling
 - [x] TXT / Markdown loading, Arabic-safe cleaning, chunking and an ingestion pipeline
 - [x] PDF loader (Arabic extraction has known limits, see [`docs/pdf-extraction.md`](docs/pdf-extraction.md))
-- [ ] DOCX loader
+- [x] DOCX loader (exact Arabic text; page numbers are approximate, see [`docs/decisions.md`](docs/decisions.md) D-009)
 - [ ] Full synthetic corpus (4 of roughly 30-50 documents so far)
 - [ ] Embeddings and vector search
 - [ ] Retrieval evaluation

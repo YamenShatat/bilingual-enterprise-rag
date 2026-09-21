@@ -28,6 +28,8 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# Lets tests import shared helpers as `from support.arabic import ...`.
+pythonpath = ["tests"]
 
 [tool.ruff]
 line-length = 100
