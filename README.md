@@ -4,7 +4,7 @@ A bilingual (Arabic / English) knowledge assistant for enterprise documents, bui
 hybrid retrieval, reranking, grounded answers with citations, document-level access control and a
 measured evaluation, served through a FastAPI backend.
 
-> **Status: early development (Week 1 of 8 — project foundation).** Nothing below is implemented yet
+> **Status: early development (Week 1 of 8 — document ingestion).** Nothing below is implemented yet
 > unless it is listed under [Current progress](#current-progress).
 
 ## Goals
@@ -40,7 +40,9 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 ## Current progress
 
 - [x] Repository, license, Python project configuration, test and lint tooling
-- [ ] Document loading, cleaning and chunking (Arabic + English)
+- [x] TXT / Markdown loading, Arabic-safe cleaning, chunking and an ingestion pipeline
+- [ ] PDF and DOCX loaders
+- [ ] Full synthetic corpus (4 of roughly 30-50 documents so far)
 - [ ] Embeddings and vector search
 - [ ] Retrieval evaluation
 - [ ] RAG with citations
