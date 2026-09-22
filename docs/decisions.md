@@ -76,6 +76,20 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   evaluate heading-aware chunking in Week 3 instead of assuming it is better.
 - **Validation:** Week 3 retrieval benchmark (Recall@k, MRR) across chunking strategies,
   sizes and overlaps.
+- **Addendum, measured in real tokenizers (`scripts/measure_chunk_tokens.py`):** at the
+  1200/200 character defaults, the 46 chunks are 32-364 tokens (median 230) in `bge-m3`'s and
+  `multilingual-e5-large`'s tokenizer, so **none exceed either model's limit** (8192 and 512
+  tokens). **`paraphrase-multilingual-mpnet-base-v2` truncates 36 of 46 chunks (78%)** at its
+  128-token limit, which is baked into its own `tokenizer.json` (`Tokenizer.from_pretrained`
+  applies it silently unless it is disabled before measuring; the script disables it and warns).
+  This is measured evidence against choosing that model without shortening chunks first, on top
+  of the token-limit concern already raised when it was proposed in section 7.2. Longest
+  chunks are the Arabic policies whose text has no ASCII shortcuts for the tokenizer's BPE
+  vocabulary (`legal/code_of_conduct_ar.md`, `finance/travel_expense_policy_ar.md`, both 364
+  tokens for chunks under 1200 characters). Measured directly: median tokens per character in
+  `bge-m3`'s tokenizer is 0.235 for the 25 English chunks and 0.309 for the 21 Arabic ones, so
+  a character-based budget gives Arabic noticeably less room in tokens than English, on this
+  evidence (one model, one corpus).
 
 ## D-007: Directory ingestion names documents by relative path and reports skips
 

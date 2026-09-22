@@ -25,6 +25,13 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
+# Not needed to run the application. Tokenizes text with a model's exact vocabulary, to measure
+# (never to split) how many chunks would be truncated by a candidate embedding model; see
+# docs/decisions.md D-006 and scripts/measure_chunk_tokens.py. Apache-2.0, maintained by
+# Hugging Face, no runtime dependency could do this (it needs each model's own vocabulary file).
+research = [
+    "tokenizers>=0.20,<0.24",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
