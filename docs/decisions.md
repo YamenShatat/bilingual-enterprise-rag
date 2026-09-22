@@ -341,3 +341,82 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   had no leading whitespace and no capital letters, so by inspection it could not have caught a
   stray `strip()` or `lower()`; it now can.
 - **Status:** Accepted. The real model, and how its inputs are tokenized and truncated, comes next.
+## D-014: The real embedder is bge-m3 via sentence-transformers, gated behind a `--slow` flag
+
+- **Decision:** `embeddings/sentence_transformer.py` wraps any `sentence-transformers` model
+  behind the `Embedder` interface from D-013, with a `bge_m3()` factory for `BAAI/bge-m3`
+  (no query or document prefix: confirmed on the model's own card, not assumed — unlike
+  `bge-large-en-v1.5` and the E5 models, "the BGE-M3 model no longer requires adding
+  instructions to the queries"). PyTorch is installed with the CUDA build
+  (`--index-url https://download.pytorch.org/whl/cu130`); the wrapper defaults to `cuda` when
+  `torch.cuda.is_available()`, else `cpu`. Real-model tests are marked `slow` and skipped by a
+  root `tests/conftest.py` unless `pytest --slow` is passed, so the everyday suite (now over
+  850 tests) still runs in about 20 seconds.
+- **Alternatives:** `intfloat/multilingual-e5-large` and
+  `sentence-transformers/paraphrase-multilingual-mpnet-base-v2` (both proposed alongside
+  bge-m3 in the Week 2 plan, to be benchmarked properly in Week 3); calling `transformers`
+  directly instead of `sentence-transformers` (would mean writing the pooling ourselves; the
+  bge-m3 card itself says "you also can use sentence-transformers... to generate dense
+  embeddings", confirming the packaged pooling config is meant to be used this way).
+- **Why bge-m3 first:** MIT license, 1024 dimensions, an 8192-token context that the D-006
+  addendum showed comfortably covers every chunk in the corpus (max 364 tokens), and no
+  query-prefix logic to get wrong. `paraphrase-multilingual-mpnet-base-v2`'s 128-token limit
+  measurably truncates 78% of the corpus's chunks (D-006 addendum), a concrete reason to not
+  reach for it first.
+- **Why a `_model` injection point on the wrapper:** it lets the wrapper's own logic (prefix
+  handling, exact-text passthrough, validation, device selection, key derivation) be
+  unit-tested in milliseconds with a fake standing in for `SentenceTransformer`, instead of
+  every test needing the real weights. `dimension` is measured by encoding a one-word probe
+  at construction, not read from a method name, because sentence-transformers has already
+  renamed that method once (`get_sentence_embedding_dimension` to `get_embedding_dimension`)
+  between versions this project has touched.
+- **Two bugs caught before any real-model test ran, from review rather than a failure:**
+  a slow real-model+database test's fixture was written module-scoped but requested the
+  function-scoped `store_connection` fixture, which pytest would have refused outright
+  (`ScopeMismatch`); the fix opens its own connection from the session-scoped
+  `migrated_database` fixture instead. The first version of that fix then called `commit()`
+  to make the writes visible across the module's tests — which would have permanently
+  written six real documents into the *shared* session database, silently invalidating
+  `test_corpus_in_database.py`'s "every document is inserted, not updated, the first time"
+  assertion the next time that file ran in the same session. Neither bug was caught by a
+  failing test; both were caught by re-reading the fixture before running it. The fixed
+  version keeps everything in one transaction for the whole module and rolls it back at the
+  end, matching the rollback discipline every other database test in this project follows.
+- **Downloads, measured, not as quoted when asked (see below):** PyTorch installed as
+  `torch 2.14.0+cu130` (a newer release appeared between when the size was quoted and when it
+  was installed; the actual download was about 2.0 GB, not the 1,783 MB stated when asking
+  for approval). `sentence-transformers` 6.1.0 pulled `transformers` 5.17.0, `numpy` 2.5.3,
+  `scikit-learn` 1.9.1, `scipy` 1.18.1 and their own dependencies. The bge-m3 weights
+  (`pytorch_model.bin`, MIT) downloaded through the Hugging Face cache as sentence-transformers
+  loaded the model; first load (download plus moving weights onto the GPU) took 145 seconds.
+  **This discrepancy is recorded here deliberately: a size quoted before a download is a
+  snapshot, not a guarantee, because upstream projects release new versions in between.**
+- **Measured (GPU, RTX 4060, driver reporting CUDA 13.4 support):** dimension 1024,
+  `max_seq_length` 8192, every returned vector has unit norm. Cross-lingual signal, the
+  property the `HashingEmbedder` stand-in explicitly cannot offer (D-013): cosine similarity
+  between an English and an Arabic sentence about the same topic (annual leave) is 0.83,
+  against 0.30 for an English sentence and an unrelated-topic Arabic one. A small curated
+  subset of the real corpus (an English/Arabic pair, a different-topic pair, an Arabic-only
+  topic, and one HR-restricted document) was embedded through `embed_missing` and searched
+  over pgvector: an Arabic query for the VPN guide finds the English-only VPN document, an
+  English query about overtime finds the Arabic-only overtime document, and the
+  access-level filter still hides the restricted document from an employee-level query.
+  **This is qualitative evidence that the pipeline works end to end with a real model, not a
+  benchmark** — Recall@k and MRR over the full evaluation set are the Week 3 experiment.
+- **Limits, stated openly:**
+  - Only one model has been wired up. The comparison against `multilingual-e5-large` and
+    `paraphrase-multilingual-mpnet-base-v2` is still to come.
+  - The qualitative check above used 6 of 32 documents and a handful of hand-picked queries.
+    It shows the mechanism works; it says nothing about accuracy at scale.
+  - No fp16 or quantization; the model runs at full precision. A possible Week 3 speed
+    experiment, not applied here without measuring its effect on retrieval first.
+  - CPU fallback is implemented but has not been timed; only the GPU path has been measured.
+- **Validation:** 45 new tests (33 fast, unit-level, using the fake model; 12 marked `slow`,
+  using the real one). The full suite is 855 passed, 1 xfailed in about 20 seconds with
+  `--slow` omitted (as a normal `pytest` run leaves it), and 12 passed in 33.67 seconds when
+  run explicitly with `pytest --slow -m slow` against the already-downloaded model. Thirteen
+  deliberate breakages of the wrapper's own logic were each caught by the fast unit tests.
+- **Status:** Accepted for bge-m3 as the first model. Provisional on which model V1 ships
+  with, pending the Week 3 comparison.
+- **Not decided yet:** `scripts/ingest_documents.py` and the `search()` function that joins a
+  query's embedding to `list_chunks`'s access-level filter (step 4).
