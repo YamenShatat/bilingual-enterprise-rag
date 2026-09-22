@@ -4,8 +4,8 @@ A bilingual (Arabic / English) knowledge assistant for enterprise documents, bui
 hybrid retrieval, reranking, grounded answers with citations, document-level access control and a
 measured evaluation, served through a FastAPI backend.
 
-> **Status: early development (Week 2 of 8 — PostgreSQL + pgvector, embeddings).** Nothing below is implemented yet
-> unless it is listed under [Current progress](#current-progress).
+> **Status: early development (Week 2 of 8 complete — PostgreSQL + pgvector, embeddings, vector search).**
+> Nothing below is implemented yet unless it is listed under [Current progress](#current-progress).
 
 ## Goals
 
@@ -49,7 +49,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Embedder interface, a deterministic stand-in embedder and batched embedding of stored chunks (see D-013; the stand-in is lexical and says nothing about retrieval quality)
 - [x] Chunk sizes measured in each candidate model's real tokenizer (see D-006 addendum): `mpnet` truncates 78% of chunks at 128 tokens, `bge-m3` and `multilingual-e5-large` do not
 - [x] Real embedder (BAAI/bge-m3 via `sentence-transformers`, CUDA), gated behind `pytest --slow`; a qualitative cross-lingual check over the real corpus (see [`docs/decisions.md`](docs/decisions.md) D-014 — not a benchmark)
-- [ ] Ingestion script and vector search
+- [x] `scripts/ingest_documents.py` and `search()`: question → embedding → pgvector → relevant chunks, access-level filtering in SQL — **Week 2's goal** (see D-015; the cross-lingual retrieval example is qualitative, not a benchmark)
 - [ ] Retrieval evaluation
 - [ ] RAG with citations
 - [ ] FastAPI backend
@@ -121,6 +121,40 @@ pytest --slow -m slow    # downloads the bge-m3 weights (MIT) on first run, then
 
 Without a CUDA GPU, skip the `--index-url` line; `torch` will install a CPU build and the
 wrapper falls back to it automatically. Slow tests are excluded from a plain `pytest` run.
+
+### Ingesting the corpus and searching it
+
+```powershell
+python scripts/ingest_documents.py                    # bge-m3: stores and embeds all 32 documents
+python scripts/ingest_documents.py --embedder hashing  # the deterministic stand-in, no download
+```
+
+Safe to run again: an unchanged document is skipped, and only chunks with no embedding yet
+for the chosen model are embedded. Two models can be embedded over the same chunks and kept
+side by side (each gets its own table; see [`docs/decisions.md`](docs/decisions.md) D-012).
+
+```python
+from bilingual_rag.config import load_database_settings
+from bilingual_rag.database.connection import connect
+from bilingual_rag.embeddings.sentence_transformer import bge_m3
+from bilingual_rag.retrieval.search import search
+
+settings = load_database_settings()
+with connect(settings) as conn:
+    results = search(
+        conn,
+        bge_m3(),
+        "How many days of annual leave do I get?",
+        allowed_access_levels={"public", "employee"},
+        k=3,
+    )
+    for r in results:
+        print(r.score, r.chunk.document.id, r.chunk.text[:80])
+```
+
+`allowed_access_levels` is required, with no default: an empty collection returns nothing,
+and the filter runs inside the SQL query, so a caller can never see a chunk from a document
+above their access level (D-012, D-015).
 
 ## License
 
