@@ -32,6 +32,16 @@ dev = [
 research = [
     "tokenizers>=0.20,<0.24",
 ]
+# Adds the real embedding model (BAAI/bge-m3 via sentence-transformers), on top of the
+# HashingEmbedder stand-in the fast test suite uses; see docs/decisions.md D-014.
+# Apache-2.0, maintained by Hugging Face. It pulls in torch itself, so on Windows with an
+# NVIDIA GPU install the CUDA build FIRST, then this extra, or pip may fetch a CPU-only
+# torch wheel from the default index instead:
+#     pip install torch --index-url https://download.pytorch.org/whl/cu130
+#     pip install -e ".[embeddings]"
+embeddings = [
+    "sentence-transformers>=5,<7",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -46,6 +56,7 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 markers = [
     "database: needs a reachable PostgreSQL (skipped when it is down; run `docker compose up -d --wait db`)",
+    "slow: needs a real embedding model (large download); run explicitly with `pytest --slow`",
 ]
 
 [tool.ruff]
