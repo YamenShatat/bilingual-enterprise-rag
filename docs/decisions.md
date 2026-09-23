@@ -572,3 +572,41 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   language-aware chunk size are candidates for a follow-up run, not required for V1.
 - **Not decided yet:** hybrid search (Week 6), reranking (Week 6), the LLM and citations
   (Week 4), and whether/how the absent-fact score gap becomes a real refusal threshold.
+
+## D-017: The LLM is qwen3:8b on a local Ollama server, called with the standard library
+
+- **Decision:** `generation/llm.py` defines an `LLM` protocol (`generate(system, prompt) -> str`)
+  and `OllamaLLM`, which posts one non-streaming request to Ollama's `/api/chat` with `urllib`.
+  The default model is `qwen3:8b` (8.2B parameters, Q4_K_M quantization, Apache-2.0, 40,960-token
+  context), already installed on the development machine; the user confirmed it for this
+  project. Every failure (Ollama not running, model not pulled, malformed reply) becomes one
+  `GenerationError` whose message says how to fix it.
+- **Why no client package:** Ollama's API is one JSON request per answer. The `ollama` Python
+  package would be a new dependency for about twenty lines of standard-library code, and
+  LangChain-style frameworks are out of scope until V1 works.
+- **Three request settings are always sent, each for a measured or stated reason:**
+  - `num_ctx` (default 8192): **measured** — with no `num_ctx`, `ollama ps` showed the loaded
+    model running with a 4096-token context despite its 40,960-token capacity. Ollama truncates
+    a longer prompt silently rather than rejecting it, so evidence could be dropped without any
+    error. 8192 leaves room for several 1200-character chunks plus instructions, and keeps the
+    KV cache small enough to share the 8 GB GPU with the embedding model.
+  - `think: false`: qwen3 otherwise writes a reasoning section before the answer.
+  - `temperature: 0`: the same question and evidence give the same answer (a `slow` test checks
+    this against the real model), which testing and debugging rely on.
+- **Qualitative check before any code (not a benchmark — three prompts):** with two short
+  sources (an Arabic and an English sentence on annual leave) and a strict "answer only from the
+  sources, else reply INSUFFICIENT_EVIDENCE" instruction, the model answered an Arabic question
+  correctly and completely in Arabic, an English question correctly, and refused an Arabic
+  question on a topic the sources do not cover. It wrote the refusal token with a trailing
+  period (`INSUFFICIENT_EVIDENCE.`), so later parsing must not require an exact string. The first
+  call took 80 s (loading the model into GPU memory); later calls took about 2 s.
+- **Validation:** 30 fast unit tests run against a stub HTTP server started inside the test
+  process (no Ollama, no mocking of `urllib`), and 4 `slow` tests against the real model, which
+  skip rather than fail when Ollama is not running or the model is missing. Eighteen deliberate
+  breakages of the client were each caught. Two were missed on the first run and reproduced by
+  hand; both were weak tests, fixed by strengthening them: the stub recorded `self.path`, which
+  `http.server` rewrites (a leading `//` becomes `/`), hiding a broken trailing-slash strip; and
+  an error-message regex matched Ollama's raw JSON as well as the unwrapped message.
+- **Status:** Accepted.
+- **Not decided yet:** the prompt, the context builder and its budget, citations, and the refusal
+  threshold (the rest of Week 4).

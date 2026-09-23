@@ -51,6 +51,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Real embedder (BAAI/bge-m3 via `sentence-transformers`, CUDA), gated behind `pytest --slow`; a qualitative cross-lingual check over the real corpus (see [`docs/decisions.md`](docs/decisions.md) D-014 — not a benchmark)
 - [x] `scripts/ingest_documents.py` and `search()`: question → embedding → pgvector → relevant chunks, access-level filtering in SQL — **Week 2's goal** (see D-015; the cross-lingual retrieval example is qualitative, not a benchmark)
 - [x] Retrieval evaluation: 50 questions (25 EN, 25 AR), Recall@k, MRR, bge-m3 vs multilingual-e5-large, two chunk sizes (see [`docs/decisions.md`](docs/decisions.md) D-016 — **Week 3's goal**)
+- [x] Local LLM client for Ollama (`qwen3:8b`), standard library only, context window set explicitly (see [`docs/decisions.md`](docs/decisions.md) D-017)
 - [ ] RAG with citations
 - [ ] FastAPI backend
 - [ ] Hybrid search and reranking
