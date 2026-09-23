@@ -1,7 +1,11 @@
 import numpy as np
 import pytest
 
-from bilingual_rag.embeddings.sentence_transformer import SentenceTransformerEmbedder, bge_m3
+from bilingual_rag.embeddings.sentence_transformer import (
+    SentenceTransformerEmbedder,
+    bge_m3,
+    e5_large,
+)
 from support.arabic import ARABIC_TRUTH
 
 
@@ -151,31 +155,47 @@ class TestEmbedQuery:
             make(fake).embed_query(5)
 
 
+def _capture_init(monkeypatch, captured):
+    """Monkeypatch __init__ to record its arguments instead of loading a real model."""
+
+    def fake_init(
+        self,
+        model_name,
+        *,
+        key=None,
+        device=None,
+        query_prefix="",
+        document_prefix="",
+        batch_size=32,
+        _model=None,
+    ):
+        captured["model_name"] = model_name
+        captured["query_prefix"] = query_prefix
+        captured["document_prefix"] = document_prefix
+        self.key = key if key is not None else "captured"
+        self.model_name = model_name
+        self.query_prefix, self.document_prefix = query_prefix, document_prefix
+        self.device, self.batch_size, self.dimension = device or "cpu", batch_size, 1024
+        self._model = FakeModel(1024)
+
+    monkeypatch.setattr(SentenceTransformerEmbedder, "__init__", fake_init)
+
+
 class TestBgeM3Factory:
     def test_uses_the_expected_model_name_and_no_prefixes(self, monkeypatch):
         captured = {}
-
-        def fake_init(
-            self,
-            model_name,
-            *,
-            key=None,
-            device=None,
-            query_prefix="",
-            document_prefix="",
-            batch_size=32,
-            _model=None,
-        ):
-            captured["model_name"] = model_name
-            captured["query_prefix"] = query_prefix
-            captured["document_prefix"] = document_prefix
-            self.key = key if key is not None else "bge_m3"
-            self.model_name = model_name
-            self.query_prefix, self.document_prefix = query_prefix, document_prefix
-            self.device, self.batch_size, self.dimension = device or "cpu", batch_size, 1024
-            self._model = FakeModel(1024)
-
-        monkeypatch.setattr(SentenceTransformerEmbedder, "__init__", fake_init)
-        embedder = bge_m3(device="cpu")
+        _capture_init(monkeypatch, captured)
+        bge_m3(device="cpu")
         assert captured == {"model_name": "BAAI/bge-m3", "query_prefix": "", "document_prefix": ""}
-        assert embedder.key == "bge_m3"
+
+
+class TestE5LargeFactory:
+    def test_uses_the_expected_model_name_and_both_prefixes(self, monkeypatch):
+        captured = {}
+        _capture_init(monkeypatch, captured)
+        e5_large(device="cpu")
+        assert captured == {
+            "model_name": "intfloat/multilingual-e5-large",
+            "query_prefix": "query: ",
+            "document_prefix": "passage: ",
+        }

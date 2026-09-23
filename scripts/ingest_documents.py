@@ -7,8 +7,9 @@ document's chunks), then embeds every chunk that has no vector yet for the chose
 Usage (from the repository root, with the project environment active):
 
     docker compose up -d --wait db
-    python scripts/ingest_documents.py                    # bge-m3 (needs the "embeddings" extra)
-    python scripts/ingest_documents.py --embedder hashing  # deterministic stand-in, no GPU/download
+    python scripts/ingest_documents.py                     # bge-m3 (needs the "embeddings" extra)
+    python scripts/ingest_documents.py --embedder e5-large  # multilingual-e5-large, same extra
+    python scripts/ingest_documents.py --embedder hashing   # deterministic stand-in, no download
 """
 
 import argparse
@@ -21,9 +22,8 @@ from bilingual_rag.config import ConfigError, load_database_settings
 from bilingual_rag.database.connection import connect
 from bilingual_rag.database.migrate import migrate
 from bilingual_rag.database.repository import store_document
-from bilingual_rag.embeddings.base import Embedder
-from bilingual_rag.embeddings.hashing import HashingEmbedder
 from bilingual_rag.embeddings.indexing import embed_missing
+from bilingual_rag.embeddings.registry import EMBEDDER_NAMES, make_embedder
 from bilingual_rag.ingestion.manifest import ManifestError, load_manifest
 from bilingual_rag.ingestion.pipeline import ingest_directory
 
@@ -33,30 +33,11 @@ DEFAULT_MANIFEST = REPO_ROOT / "data" / "manifest.json"
 ENV_FILE = REPO_ROOT / ".env"
 
 
-def make_embedder(name: str) -> Embedder:
-    """
-    Raises:
-        RuntimeError: `name` is "bge-m3" and the optional "embeddings" extra is not installed.
-    """
-    if name == "hashing":
-        return HashingEmbedder()
-    if name == "bge-m3":
-        try:
-            from bilingual_rag.embeddings.sentence_transformer import bge_m3
-        except ImportError as exc:
-            raise RuntimeError(
-                'the bge-m3 embedder needs the "embeddings" extra: '
-                'pip install -e ".[embeddings]" (see README for the Windows CUDA install order)'
-            ) from exc
-        return bge_m3()
-    raise ValueError(f"unknown embedder {name!r}")
-
-
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
-    parser.add_argument("--embedder", choices=["bge-m3", "hashing"], default="bge-m3")
+    parser.add_argument("--embedder", choices=EMBEDDER_NAMES, default="bge-m3")
     parser.add_argument("--batch-size", type=int, default=32)
     return parser.parse_args(argv)
 

@@ -107,3 +107,21 @@ def bge_m3(
     adding instructions to the queries" (unlike bge-large-en-v1.5 or the E5 models).
     """
     return SentenceTransformerEmbedder("BAAI/bge-m3", device=device, batch_size=batch_size)
+
+
+def e5_large(
+    *, device: str | None = None, batch_size: int = DEFAULT_BATCH_SIZE
+) -> SentenceTransformerEmbedder:
+    """intfloat/multilingual-e5-large: multilingual, 1024-dim, 512-token limit, MIT.
+
+    Both prefixes are required: the model card states "each input text should start with
+    'query: ' or 'passage: ', even for non-English texts... otherwise you will see a
+    performance degradation."
+    """
+    return SentenceTransformerEmbedder(
+        "intfloat/multilingual-e5-large",
+        device=device,
+        query_prefix="query: ",
+        document_prefix="passage: ",
+        batch_size=batch_size,
+    )
