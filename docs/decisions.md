@@ -610,3 +610,59 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
 - **Status:** Accepted.
 - **Not decided yet:** the prompt, the context builder and its budget, citations, and the refusal
   threshold (the rest of Week 4).
+
+## D-018: The context builder numbers whole chunks in rank order within a measured character budget
+
+- **Decision:** `generation/context.py` provides `build_context(results, *, max_chars=12_000)`.
+  It turns `search()` results into one evidence block of numbered sources, in rank order:
+
+  ```text
+  [1] hr-annual-leave-policy-en | page 1 | Annual Leave Policy
+  <the chunk text, exactly as stored>
+  ```
+
+  and returns it with the matching `Source` records (number, chunk id, document id, title, page,
+  score, text). The model will cite sources by number; the answer step (Week 4, next) maps the
+  numbers back to documents and pages.
+- **Why numbers, not document ids, as citation labels:** a short number is easier for a model to
+  copy exactly than `hr-annual-leave-policy-ar`, and a number outside the list is plainly invalid,
+  where a slightly wrong id could look plausible. The header still shows the id, page and title,
+  so the model and a human reading the prompt both see where each source came from.
+- **Why whole chunks and a hard stop:** a chunk is never cut short, since half a sentence of
+  evidence can say something the document does not. Sources are added in rank order until the
+  next would pass the budget, and nothing after that is added even if smaller, so the evidence is
+  always the top of the ranking. A budget too small for even the top result is an error, not an
+  empty context, because an empty context means "no evidence" and would turn a
+  misconfiguration into a refusal.
+- **Why 12,000 characters — measured, not assumed:** D-006's tokens-per-character figures came
+  from the embedding models' tokenizers, not the LLM's. Counting all 46 corpus chunks with
+  qwen3:8b itself (Ollama's `prompt_eval_count`, raw mode, no chat template) gave:
+
+  | Language | Chunks | Mean tokens/char | Max tokens/char |
+  | --- | --- | --- | --- |
+  | Arabic | 21 | 0.403 | 0.466 |
+  | English | 25 | 0.245 | 0.348 |
+
+  Arabic costs qwen3 about 1.6 times as many tokens per character as English, and more than
+  bge-m3's tokenizer measured (0.309), so reusing the D-006 figure would have under-budgeted
+  Arabic by about a third. At the worst rate, 12,000 characters is at most about 5,600 tokens of
+  the 8,192-token window (D-017). **Checked end to end:** a default-budget context built from the
+  most token-dense Arabic chunks in the corpus held 13 sources in 11,632 characters and measured
+  4,821 qwen3 tokens, leaving 3,371 tokens for the instructions, the question and the answer. At
+  `k=5` (at most 6,000 characters of chunk text) the budget never binds; it is a guard for larger
+  `k`, not a tuning knob.
+- **Access control and untrusted text:** the builder only ever drops results, never adds one, so
+  the evidence can contain nothing that `search()` did not already return for the caller's
+  access levels (D-015); an integration test plants one document per access level and checks
+  that each caller's evidence names only its own. Chunk text is passed through unmodified (D-004)
+  and is not trusted: a chunk could contain a line that looks like a source header. At worst that
+  makes the model attribute text to the wrong one of the caller's own sources; it cannot reveal
+  anything the caller may not read. Resisting instructions inside chunk text is the answer
+  step's job and gets its own test there.
+- **Validation:** 20 unit tests and 6 database tests. Sixteen deliberate breakages were each
+  caught on the first run, including skipping an oversized source instead of stopping, forgetting
+  the blank-line separator in the budget, an off-by-one at the exact budget, and stripping chunk
+  text.
+- **Status:** Accepted.
+- **Not decided yet:** the system prompt, citation parsing and validation, and the refusal
+  threshold (the answer step).
