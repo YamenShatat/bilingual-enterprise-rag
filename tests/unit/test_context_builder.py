@@ -1,10 +1,9 @@
 import pytest
 
-from bilingual_rag.database.repository import StoredChunk, chunk_id
 from bilingual_rag.generation.context import DEFAULT_MAX_CHARS, build_context
-from bilingual_rag.retrieval.search import SearchResult
 from support.arabic import ARABIC_TRUTH
 from support.samples import make_metadata
+from support.samples import make_result as result
 
 ARABIC_DOC = make_metadata(
     id="hr-leave-ar",
@@ -13,22 +12,6 @@ ARABIC_DOC = make_metadata(
     language="ar",
     digits="arabic-indic",
 )
-
-
-def result(text, *, document=None, page=1, index=0, score=0.7):
-    document = document or make_metadata()
-    return SearchResult(
-        chunk=StoredChunk(
-            id=chunk_id(document.id, page, index),
-            document=document,
-            page=page,
-            index=index,
-            text=text,
-            start=0,
-            end=len(text),
-        ),
-        score=score,
-    )
 
 
 class TestNumberingAndFormat:
