@@ -56,7 +56,7 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 markers = [
     "database: needs a reachable PostgreSQL (skipped when it is down; run `docker compose up -d --wait db`)",
-    "slow: needs a real embedding model (large download); run explicitly with `pytest --slow`",
+    "slow: needs a real embedding model or a local Ollama LLM (large download); run explicitly with `pytest --slow`",
 ]
 
 [tool.ruff]
