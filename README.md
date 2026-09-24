@@ -28,8 +28,9 @@ Question → Query processing → Hybrid retrieval (vector + keyword)
 
 ## Technology (planned)
 
-Python 3.12+, FastAPI, PostgreSQL + pgvector, multilingual embedding models (to be benchmarked),
-Ollama for local LLMs, Streamlit, pytest, Docker, GitHub Actions.
+Python 3.12+, FastAPI, PostgreSQL + pgvector, multilingual embedding models (bge-m3, chosen by
+measurement in D-016), Ollama for local LLMs (qwen3:8b, D-017), Streamlit, pytest, Docker,
+GitHub Actions.
 Each choice will be recorded, with the alternatives considered, in `docs/decisions.md`.
 
 ## Dataset
@@ -54,7 +55,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Local LLM client for Ollama (`qwen3:8b`), standard library only, context window set explicitly (see [`docs/decisions.md`](docs/decisions.md) D-017)
 - [x] Context builder: numbered, whole-chunk evidence within a character budget measured in the LLM's own tokenizer (see [`docs/decisions.md`](docs/decisions.md) D-018)
 - [x] Grounded answers with citations, or a refusal the system (not the model) enforces at four gates; measured on the 50 questions, including a prompt-injection comparison (see [`docs/decisions.md`](docs/decisions.md) D-019 — **Week 4's goal**)
-- [ ] FastAPI backend
+- [x] FastAPI backend: `POST /query`, `GET /documents`, `POST /documents` (admin key), `GET /health`; access levels come from the server, never the request (see [`docs/decisions.md`](docs/decisions.md) D-020 — **Week 5's goal**)
 - [ ] Hybrid search and reranking
 - [ ] UI, authentication and permissions
 - [ ] Docker and CI/CD
@@ -230,6 +231,35 @@ questions and save every answer for reading:
 ```powershell
 python scripts/evaluate_answers.py --output answers.json
 ```
+
+### Running the API (needs Ollama)
+
+```powershell
+pip install -e ".[embeddings,api]"
+uvicorn bilingual_rag.api.app:create_app --factory --port 8000
+```
+
+Interactive documentation is served at `http://127.0.0.1:8000/docs`. Two settings in `.env`
+(see `.env.example`) control what callers may do until real users arrive in Week 7:
+
+- `API_ACCESS_LEVELS` (default `public`): the access levels every caller gets. A request cannot
+  send its own; an unknown field such as `access_levels` is rejected with 422.
+- `ADMIN_API_KEY` (at least 16 characters): required as the `X-Admin-Key` header to upload.
+  Leave it empty and uploads are disabled.
+
+```powershell
+# ask (PowerShell 5.1: pass UTF-8 bytes so Arabic survives)
+$body = [Text.Encoding]::UTF8.GetBytes('{"question": "How many days of annual leave do I get?"}')
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/query -ContentType "application/json" -Body $body
+
+# list the documents you may read
+Invoke-RestMethod http://127.0.0.1:8000/documents
+```
+
+Uploads take a multipart form with the file (md, txt, docx or pdf, up to 10 MB) and the
+metadata fields `id`, `title`, `department`, `language`, `access_level`, `topic` and, for
+Arabic, `digits`. The client's filename is never stored; the document is chunked, stored and
+embedded at once, and an existing id is refused (409).
 
 ## License
 
