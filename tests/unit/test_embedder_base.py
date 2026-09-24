@@ -120,3 +120,10 @@ class TestProtocol:
                 return []
 
         assert not isinstance(Half(), Embedder)
+
+
+def test_an_unknown_reranker_is_an_error():
+    from bilingual_rag.embeddings.registry import make_reranker
+
+    with pytest.raises(ValueError, match="unknown reranker"):
+        make_reranker("bge-reranker-large")

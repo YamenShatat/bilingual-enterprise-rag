@@ -133,3 +133,59 @@ class TestSummarize:
         questions = [q("q1", None, category="absent_fact", question="leave policy")]
         with pytest.raises(ValueError, match="no answerable"):
             summarize(run_questions(conn, fake, questions, EVERYONE))
+
+
+class FavourVpn:
+    """Scores the VPN chunk 0.9 and everything else 0.1."""
+
+    model_name = "favour-vpn"
+
+    def score(self, query, texts):
+        return [0.9 if "vpn" in text else 0.1 for text in texts]
+
+
+class TestWithReranker:
+    def test_the_reranker_decides_the_rank_and_the_top_score(self, seeded):
+        conn, fake = seeded
+        question = q("q1", "doc-vpn", question="leave policy")
+        plain = run_question(conn, fake, question, EVERYONE)
+        reranked = run_question(conn, fake, question, EVERYONE, reranker=FavourVpn())
+        assert plain.rank != 1
+        assert reranked.rank == 1
+        assert reranked.top_score == 0.9  # the rerank score, not the cosine
+
+    def test_the_mode_is_passed_on(self, seeded):
+        conn, fake = seeded
+        # Keyword mode finds nothing for words no chunk contains; vector mode always finds some.
+        question = q("q1", "doc-leave", question="zzz unrelated words")
+        assert run_question(conn, fake, question, EVERYONE, mode="keyword").top_score is None
+        assert run_question(conn, fake, question, EVERYONE, mode="vector").top_score is not None
+
+
+class TestScoreBounds:
+    def test_the_lowest_answerable_and_highest_absent_top_scores_are_reported(self, seeded):
+        conn, fake = seeded
+        questions = [
+            q("q1", "doc-leave", question="leave policy details"),
+            q("q2", "doc-vpn", question="vpn"),
+            q("q3", None, category="absent_fact", question="leave policy details"),
+            q("q4", None, category="absent_fact", question="benefits"),
+        ]
+        outcomes = run_questions(conn, fake, questions, EVERYONE)
+        summary = summarize(outcomes)
+        scores = {o.question.id: o.top_score for o in outcomes}
+        assert summary["answerable_top_score"] == {
+            "count": 2,
+            "min_top_score": min(scores["q1"], scores["q2"]),
+        }
+        assert summary["absent_fact"]["max_top_score"] == max(scores["q3"], scores["q4"])
+
+
+def test_run_questions_passes_the_reranker_to_every_question(seeded):
+    conn, fake = seeded
+    questions = [
+        q("q1", "doc-vpn", question="leave policy"),
+        q("q2", "doc-vpn", question="benefits"),
+    ]
+    outcomes = run_questions(conn, fake, questions, EVERYONE, reranker=FavourVpn())
+    assert [o.rank for o in outcomes] == [1, 1]

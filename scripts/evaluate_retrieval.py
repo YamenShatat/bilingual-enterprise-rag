@@ -13,6 +13,7 @@ Usage (from the repository root, with the project environment active):
     python scripts/evaluate_retrieval.py --embedder bge-m3
     python scripts/evaluate_retrieval.py --embedder e5-large --chunk-size 800 --overlap 150
     python scripts/evaluate_retrieval.py --mode hybrid
+    python scripts/evaluate_retrieval.py --mode vector --reranker bge-reranker-v2-m3
 """
 
 import argparse
@@ -25,7 +26,12 @@ from bilingual_rag.config import ConfigError, load_database_settings
 from bilingual_rag.database.connection import connect
 from bilingual_rag.database.repository import store_document
 from bilingual_rag.embeddings.indexing import embed_missing
-from bilingual_rag.embeddings.registry import EMBEDDER_NAMES, make_embedder
+from bilingual_rag.embeddings.registry import (
+    EMBEDDER_NAMES,
+    RERANKER_NAMES,
+    make_embedder,
+    make_reranker,
+)
 from bilingual_rag.evaluation.questions import QuestionsError, load_questions
 from bilingual_rag.evaluation.runner import DEFAULT_K_VALUES, run_questions, summarize
 from bilingual_rag.ingestion.chunker import DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP
@@ -44,6 +50,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--embedder", choices=EMBEDDER_NAMES, default="bge-m3")
     parser.add_argument("--mode", choices=MODES, default="vector", help="retrieval mode (D-022)")
+    parser.add_argument("--reranker", choices=RERANKER_NAMES, help="rerank the candidates (D-023)")
     parser.add_argument("--questions", type=Path, default=DEFAULT_QUESTIONS)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -72,6 +79,7 @@ def main() -> int:
 
     try:
         embedder = make_embedder(args.embedder)
+        reranker = make_reranker(args.reranker) if args.reranker else None
     except RuntimeError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -98,15 +106,23 @@ def main() -> int:
         conn.commit()
 
         print(
-            f"mode={args.mode} embedder={embedder.model_name} chunk_size={args.chunk_size} "
+            f"mode={args.mode} reranker={args.reranker} embedder={embedder.model_name} "
+            f"chunk_size={args.chunk_size} "
             f"overlap={args.overlap} newly_embedded={newly_embedded}\n"
         )
-        outcomes = run_questions(conn, embedder, questions, set(ACCESS_LEVELS), mode=args.mode)
+        outcomes = run_questions(
+            conn, embedder, questions, set(ACCESS_LEVELS), mode=args.mode, reranker=reranker
+        )
         summary = summarize(outcomes, DEFAULT_K_VALUES)
         for name, block in summary.items():
             if name == "absent_fact":
-                score = block["mean_top_score"]
-                print(f"{name:16} n={block['count']:<3} mean_top_score={score:.3f}")
+                print(
+                    f"{name:16} n={block['count']:<3} mean_top_score={block['mean_top_score']:.3f} "
+                    f"max_top_score={block['max_top_score']:.3f}"
+                )
+            elif name == "answerable_top_score":
+                count, lowest = block["count"], block["min_top_score"]
+                print(f"{'answerable':16} n={count:<3} min_top_score={lowest:.3f}")
             else:
                 _print_block(name, block)
     finally:
