@@ -1,9 +1,11 @@
 """Store and read documents and chunks.
 
 Nothing here commits: the caller owns the transaction, so one ingestion run is all-or-nothing
-and tests can roll back. Chunk text is only ever read through ``list_chunks``, which requires
-the caller's allowed access levels, so unauthorized text cannot be fetched by forgetting a
-filter. Deny by default: an empty collection of levels returns nothing.
+and tests can roll back. Chunk text is only ever read through ``list_chunks``, and document
+lists through ``list_documents``; both require the caller's allowed access levels, so
+unauthorized content cannot be fetched by forgetting a filter. Deny by default: an empty
+collection of levels returns nothing. ``get_document`` is unfiltered and meant for trusted
+ingestion code (checking whether an id exists), never for a response to a caller.
 """
 
 import hashlib
@@ -148,10 +150,31 @@ def get_document(conn: psycopg.Connection, document_id: str) -> DocumentMetadata
     return None if row is None else DocumentMetadata(*row)
 
 
-def list_documents(conn: psycopg.Connection) -> list[DocumentMetadata]:
-    """The metadata of every document (never its text), ordered by path."""
+def _levels(allowed_access_levels: Collection[str]) -> list[str]:
+    if isinstance(allowed_access_levels, str):
+        raise TypeError("allowed_access_levels must be a collection of levels, not one string")
+    return sorted(set(allowed_access_levels))
+
+
+def list_documents(
+    conn: psycopg.Connection, allowed_access_levels: Collection[str]
+) -> list[DocumentMetadata]:
+    """The metadata (never the text) of the documents the caller may read, ordered by path.
+
+    Titles can be sensitive too ("2027 layoffs plan"), so this is filtered exactly like
+    ``list_chunks``: ``allowed_access_levels`` is required, an empty collection returns nothing,
+    and the filter is part of the SQL statement.
+
+    Raises:
+        TypeError: ``allowed_access_levels`` is a single string.
+    """
+    levels = _levels(allowed_access_levels)
+    if not levels:
+        return []
     rows = conn.execute(
-        f'SELECT {_DOCUMENT_COLUMNS} FROM documents ORDER BY path COLLATE "C"'
+        f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE access_level = ANY(%s)"
+        ' ORDER BY path COLLATE "C"',
+        (levels,),
     ).fetchall()
     return [DocumentMetadata(*row) for row in rows]
 
@@ -173,9 +196,7 @@ def list_chunks(
         TypeError: ``allowed_access_levels`` is a single string (which would be read as a
             collection of letters and silently match nothing, or the wrong thing).
     """
-    if isinstance(allowed_access_levels, str):
-        raise TypeError("allowed_access_levels must be a collection of levels, not one string")
-    levels = sorted(set(allowed_access_levels))
+    levels = _levels(allowed_access_levels)
     if not levels:
         return []
 
