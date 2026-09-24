@@ -4,7 +4,7 @@ A bilingual (Arabic / English) knowledge assistant for enterprise documents, bui
 hybrid retrieval, reranking, grounded answers with citations, document-level access control and a
 measured evaluation, served through a FastAPI backend.
 
-> **Status: in development (Weeks 1-6 of 8 done — through hybrid search and reranking).**
+> **Status: in development (Weeks 1-7 of 8 done — through the web UI and user permissions).**
 > Nothing below is implemented yet unless it is listed under [Current progress](#current-progress).
 
 ## Goals
@@ -55,10 +55,10 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Local LLM client for Ollama (`qwen3:8b`), standard library only, context window set explicitly (see [`docs/decisions.md`](docs/decisions.md) D-017)
 - [x] Context builder: numbered, whole-chunk evidence within a character budget measured in the LLM's own tokenizer (see [`docs/decisions.md`](docs/decisions.md) D-018)
 - [x] Grounded answers with citations, or a refusal the system (not the model) enforces at four gates; measured on the 50 questions, including a prompt-injection comparison (see [`docs/decisions.md`](docs/decisions.md) D-019 — **Week 4's goal**)
-- [x] FastAPI backend: `POST /query`, `GET /documents`, `POST /documents` (admin key), `GET /health`; access levels come from the server, never the request (see [`docs/decisions.md`](docs/decisions.md) D-020 — **Week 5's goal**)
+- [x] FastAPI backend: `POST /query`, `GET /documents`, `POST /documents`, `GET /health`; permissions never come from the request (see [`docs/decisions.md`](docs/decisions.md) D-020 — **Week 5's goal**; its interim admin key and server-wide levels were replaced by real users in D-024)
 - [x] Keyword search (PostgreSQL full-text, Arabic and English stemmers), hybrid fusion (measured: hurts cross-lingual retrieval, so not used), and a multilingual cross-encoder reranker used by default (see [`docs/decisions.md`](docs/decisions.md) D-021 to D-023 — **Week 6's goal**)
 - [x] Authentication and permissions: users with scrypt-hashed passwords, JWT login, Admin and Employee roles, per-user access levels read from the database on every request (see [`docs/decisions.md`](docs/decisions.md) D-024)
-- [ ] Streamlit UI
+- [x] Streamlit UI: login, questions with sources and bilingual refusals, the documents you may read, admin-only upload; a client of the API only (see [`docs/decisions.md`](docs/decisions.md) D-025 — **Week 7's goal**)
 - [ ] Docker and CI/CD
 
 ## Benchmark results
@@ -290,6 +290,21 @@ Uploads (admins only) take a multipart form with the file (md, txt, docx or pdf,
 and the metadata fields `id`, `title`, `department`, `language`, `access_level`, `topic` and,
 for Arabic, `digits`. The client's filename is never stored; the document is chunked, stored and
 embedded at once, and an existing id is refused (409).
+
+### Running the web UI
+
+With the API running, in a second terminal:
+
+```powershell
+pip install -e ".[ui]"
+streamlit run src/bilingual_rag/ui/app.py
+```
+
+Open `http://127.0.0.1:8501` and log in with a user created above. Arabic answers are laid out
+right to left; every answer lists its sources, and a refusal says why in English and Arabic.
+The UI only calls the API (set `RAG_API_URL` if it is not at `http://127.0.0.1:8000`), so every
+permission is enforced there. `.streamlit/config.toml` keeps it on this machine only
+(`127.0.0.1`), turns off Streamlit's usage statistics and hides its "Deploy" button (D-025).
 
 ## License
 
