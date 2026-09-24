@@ -12,6 +12,7 @@ Usage (from the repository root, with the project environment active):
 
     python scripts/evaluate_retrieval.py --embedder bge-m3
     python scripts/evaluate_retrieval.py --embedder e5-large --chunk-size 800 --overlap 150
+    python scripts/evaluate_retrieval.py --mode hybrid
 """
 
 import argparse
@@ -30,6 +31,7 @@ from bilingual_rag.evaluation.runner import DEFAULT_K_VALUES, run_questions, sum
 from bilingual_rag.ingestion.chunker import DEFAULT_CHUNK_SIZE, DEFAULT_OVERLAP
 from bilingual_rag.ingestion.manifest import ACCESS_LEVELS, ManifestError, load_manifest
 from bilingual_rag.ingestion.pipeline import ingest_directory
+from bilingual_rag.retrieval.hybrid import MODES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_DATA_DIR = REPO_ROOT / "data" / "synthetic"
@@ -41,6 +43,7 @@ ENV_FILE = REPO_ROOT / ".env"
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--embedder", choices=EMBEDDER_NAMES, default="bge-m3")
+    parser.add_argument("--mode", choices=MODES, default="vector", help="retrieval mode (D-022)")
     parser.add_argument("--questions", type=Path, default=DEFAULT_QUESTIONS)
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
@@ -95,10 +98,10 @@ def main() -> int:
         conn.commit()
 
         print(
-            f"embedder={embedder.model_name} chunk_size={args.chunk_size} "
+            f"mode={args.mode} embedder={embedder.model_name} chunk_size={args.chunk_size} "
             f"overlap={args.overlap} newly_embedded={newly_embedded}\n"
         )
-        outcomes = run_questions(conn, embedder, questions, set(ACCESS_LEVELS))
+        outcomes = run_questions(conn, embedder, questions, set(ACCESS_LEVELS), mode=args.mode)
         summary = summarize(outcomes, DEFAULT_K_VALUES)
         for name, block in summary.items():
             if name == "absent_fact":

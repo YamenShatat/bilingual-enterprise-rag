@@ -40,11 +40,14 @@ def search(
     *,
     k: int = DEFAULT_K,
     language: str | None = None,
+    chunk_ids: Collection[str] | None = None,
 ) -> list[SearchResult]:
     """The ``k`` stored chunks whose ``embedder`` vectors are most similar to ``query``.
 
     Only chunks of documents whose access level is in ``allowed_access_levels`` are
     considered; an empty collection returns nothing without embedding the query at all.
+    ``chunk_ids`` narrows the search to those chunks (hybrid search uses it to score keyword
+    matches); the access filter still applies to them.
     ``query`` is embedded exactly as given by ``embedder.embed_query`` — its own validation
     (a non-string or blank query) applies here too.
 
@@ -71,7 +74,9 @@ def search(
         )
     vector = format_vector(embedder.embed_query(query))
 
-    language_clause = " AND d.language = %s" if language is not None else ""
+    filters = " AND d.language = %s" if language is not None else ""
+    if chunk_ids is not None:
+        filters += " AND c.id = ANY(%s)"
     query_sql = sql.SQL(
         "SELECT c.id, c.page, c.chunk_index, c.text, c.start_offset, c.end_offset,"
         " d.id, d.path, d.title, d.department, d.language, d.format, d.access_level,"
@@ -80,7 +85,7 @@ def search(
         " FROM {table} e"
         " JOIN chunks c ON c.id = e.chunk_id"
         " JOIN documents d ON d.id = c.document_id"
-        " WHERE d.access_level = ANY(%s)" + language_clause + " "
+        " WHERE d.access_level = ANY(%s)" + filters + " "
         "ORDER BY e.embedding <=> %s::vector"
         " LIMIT %s"
     ).format(table=sql.Identifier(model.table_name))
@@ -88,6 +93,8 @@ def search(
     params: list[object] = [vector, levels]
     if language is not None:
         params.append(language)
+    if chunk_ids is not None:
+        params.append(sorted(set(chunk_ids)))
     params += [vector, k]
 
     return [
