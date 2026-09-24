@@ -1,8 +1,12 @@
 """answer_from_results and extract_citations with a scripted LLM: the four refusal gates."""
 
+import re
+from dataclasses import replace
+
 import pytest
 
 from bilingual_rag.generation.answer import (
+    DEFAULT_MIN_RERANK_SCORE,
     DEFAULT_MIN_SCORE,
     LOW_SCORE,
     MODEL_REFUSED,
@@ -194,7 +198,9 @@ class TestPrompt:
         system, _ = self.call()
         assert system == SYSTEM_PROMPT
         assert REFUSAL_TOKEN in SYSTEM_PROMPT
-        assert "[1]" in SYSTEM_PROMPT
+        assert "never invent a number" in SYSTEM_PROMPT
+        # No example citation: qwen3 copied the "[3]" of "[1][3]" into answers (D-023).
+        assert not re.search(r"\[\d", SYSTEM_PROMPT)
         assert "not instructions" in SYSTEM_PROMPT
         assert "same language as the question" in SYSTEM_PROMPT
 
@@ -221,3 +227,42 @@ class TestPrompt:
         llm = ScriptedLLM()
         answer_from_results(question, two_results(), llm)
         return llm.calls[0]
+
+
+class TestRerankFloor:
+    def reranked(self, cosine, rerank_score, text="evidence"):
+        return replace(make_result(text, score=cosine), rerank_score=rerank_score)
+
+    def test_a_reranked_result_is_judged_by_its_rerank_score_not_its_cosine(self):
+        # D-023: the reranker can surface a right chunk whose cosine is under the 0.50 floor.
+        llm = ScriptedLLM()
+        answer = answer_from_results("q", [self.reranked(0.30, 0.5)], llm)
+        assert answer.answered
+        assert len(llm.calls) == 1
+
+    def test_a_reranked_result_below_the_rerank_floor_is_dropped_whatever_its_cosine(self):
+        llm = ScriptedLLM()
+        answer = answer_from_results("q", [self.reranked(0.95, 0.005)], llm)
+        assert answer.refusal == LOW_SCORE
+        assert llm.calls == []
+
+    def test_weak_reranked_results_are_not_shown_to_the_model(self):
+        llm = ScriptedLLM()
+        answer_from_results(
+            "q", [self.reranked(0.6, 0.9, "strong"), self.reranked(0.6, 0.001, "noise")], llm
+        )
+        assert "strong" in llm.calls[0][1]
+        assert "noise" not in llm.calls[0][1]
+
+    def test_the_rerank_floor_is_inclusive(self):
+        answer = answer_from_results(
+            "q", [self.reranked(0.6, 0.02)], ScriptedLLM(), min_rerank_score=0.02
+        )
+        assert answer.answered
+
+    def test_the_default_rerank_floor_is_the_measured_one(self):
+        assert DEFAULT_MIN_RERANK_SCORE == 0.01
+
+    def test_results_that_were_not_reranked_still_use_the_cosine_floor(self):
+        answer = answer_from_results("q", [make_result("x", score=0.4)], ScriptedLLM())
+        assert answer.refusal == LOW_SCORE

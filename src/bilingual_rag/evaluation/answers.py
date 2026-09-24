@@ -17,6 +17,7 @@ from bilingual_rag.embeddings.base import Embedder
 from bilingual_rag.evaluation.questions import EvaluationQuestion
 from bilingual_rag.generation.answer import Answer, ask
 from bilingual_rag.generation.llm import LLM
+from bilingual_rag.retrieval.rerank import Reranker
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,9 +44,13 @@ def run_answer_questions(
     llm: LLM,
     questions: Sequence[EvaluationQuestion],
     allowed_access_levels: Collection[str],
+    *,
+    reranker: Reranker | None = None,
 ) -> list[AnswerOutcome]:
     return [
-        AnswerOutcome(q, ask(conn, embedder, llm, q.question, allowed_access_levels))
+        AnswerOutcome(
+            q, ask(conn, embedder, llm, q.question, allowed_access_levels, reranker=reranker)
+        )
         for q in questions
     ]
 

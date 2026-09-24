@@ -62,12 +62,13 @@ def llm():
     return ScriptedLLM()
 
 
-def make_client(database, llm, *, levels=("public",), admin_key=ADMIN_KEY):
+def make_client(database, llm, *, levels=("public",), admin_key=ADMIN_KEY, reranker=None):
     services = Services(
         database=database,
         api=ApiSettings(access_levels=frozenset(levels), admin_api_key=admin_key),
         embedder=EMBEDDER,
         llm=llm,
+        reranker=reranker,
     )
     return TestClient(create_app(lambda: services))
 
@@ -86,6 +87,7 @@ class TestHealth:
         assert body["status"] == "ok"
         assert body["database"]["ok"] is True
         assert body["llm"] == {"ok": True, "model": "scripted", "detail": None}
+        assert body["reranker"] is None
 
     def test_llm_down_is_degraded_but_still_200(self, client, llm):
         llm.down = True
@@ -328,3 +330,30 @@ class TestUpload:
     def test_invalid_utf8_text_is_422(self, client):
         response = upload(client, filename="bad.txt", data=b"\xff\xfe\x00bad")
         assert response.status_code == 422
+
+
+class RejectAll:
+    """A reranker that finds nothing relevant, so the rerank floor refuses every question."""
+
+    model_name = "reject-all"
+
+    def __init__(self):
+        self.calls = 0
+
+    def score(self, query, texts):
+        self.calls += 1
+        return [0.0] * len(texts)
+
+
+class TestReranking:
+    def test_query_uses_the_configured_reranker(self, database):
+        reranker, llm = RejectAll(), ScriptedLLM()
+        with make_client(database, llm, reranker=reranker) as test_client:
+            body = test_client.post("/query", json={"question": TOPIC}).json()
+        assert reranker.calls == 1
+        assert body["refusal"] == "low_score"
+        assert llm.prompts == []
+
+    def test_health_names_the_reranker(self, database, llm):
+        with make_client(database, llm, reranker=RejectAll()) as test_client:
+            assert test_client.get("/health").json()["reranker"] == "reject-all"

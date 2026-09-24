@@ -49,9 +49,14 @@ class SentenceTransformerEmbedder:
         query_prefix: str = "",
         document_prefix: str = "",
         batch_size: int = DEFAULT_BATCH_SIZE,
+        half: bool = False,
         _model: _Encodable | None = None,
     ):
-        """
+        """``half`` loads the weights in 16-bit on CUDA (ignored on CPU): about half the GPU
+        memory, the same top 5 as 32-bit for 49 of the 50 evaluation questions, and the same
+        Recall@k after reranking (D-023). Documents are still embedded by the ingestion script,
+        in 32-bit.
+
         Raises:
             ValueError: `batch_size` is not positive.
         """
@@ -65,9 +70,12 @@ class SentenceTransformerEmbedder:
         self.device = (
             device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
         )
-        self._model = (
-            _model if _model is not None else SentenceTransformer(model_name, device=self.device)
-        )
+        if _model is None:
+            kwargs = {}
+            if half and self.device.startswith("cuda"):
+                kwargs["model_kwargs"] = {"dtype": torch.float16}
+            _model = SentenceTransformer(model_name, device=self.device, **kwargs)
+        self._model = _model
         self.dimension = len(self._encode(["x"])[0])
 
     def _encode(self, texts: list[str]) -> list[list[float]]:
@@ -99,14 +107,16 @@ class SentenceTransformerEmbedder:
 
 
 def bge_m3(
-    *, device: str | None = None, batch_size: int = DEFAULT_BATCH_SIZE
+    *, device: str | None = None, batch_size: int = DEFAULT_BATCH_SIZE, half: bool = False
 ) -> SentenceTransformerEmbedder:
     """BAAI/bge-m3: multilingual, 1024-dim, 8192-token context, MIT.
 
     No query or document prefix: the model card states "the BGE-M3 model no longer requires
     adding instructions to the queries" (unlike bge-large-en-v1.5 or the E5 models).
     """
-    return SentenceTransformerEmbedder("BAAI/bge-m3", device=device, batch_size=batch_size)
+    return SentenceTransformerEmbedder(
+        "BAAI/bge-m3", device=device, batch_size=batch_size, half=half
+    )
 
 
 def e5_large(
