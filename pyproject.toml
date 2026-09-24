@@ -42,6 +42,16 @@ research = [
 embeddings = [
     "sentence-transformers>=5,<7",
 ]
+# The HTTP API (Week 5): FastAPI (MIT) with pydantic validation, uvicorn (BSD-3) to serve it,
+# python-multipart (Apache-2.0) to parse file uploads. The standard library's http.server has
+# no request validation, upload parsing or OpenAPI docs. Tests use FastAPI's TestClient, which
+# needs httpx (BSD-3), already installed by the embeddings extra and listed here explicitly.
+api = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "python-multipart>=0.0.9,<0.1",
+    "httpx>=0.27,<1",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
