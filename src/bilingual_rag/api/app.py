@@ -1,18 +1,19 @@
-"""FastAPI application: POST /query, GET /documents, POST /documents, GET /health.
+"""FastAPI application: POST /auth/token, GET /auth/me, POST /query, GET /documents,
+POST /documents, GET /health.
 
 Run it (from the repository root, database and Ollama running)::
 
     uvicorn bilingual_rag.api.app:create_app --factory
 
-Permissions come from the server, never the request (D-020): every caller gets
-``API_ACCESS_LEVELS`` (default ``public``) until Week 7 adds real users. Uploads need the
-``X-Admin-Key`` header to match ``ADMIN_API_KEY``, and are disabled when it is unset.
+Every endpoint but /health and /auth/token needs a bearer token from /auth/token (D-024). The
+token only names the user: their role and access levels are read from the database on every
+request, and the access levels go straight to the search, which filters in SQL (D-015). A request
+can never choose its own levels. Only admins may upload.
 
 Endpoints are plain ``def`` functions: FastAPI runs them in a thread pool, which suits the
 blocking database driver and the multi-second LLM call.
 """
 
-import secrets
 import tempfile
 from collections.abc import Callable, Iterator
 from contextlib import asynccontextmanager
@@ -21,10 +22,13 @@ from pathlib import Path
 from typing import Annotated
 
 import psycopg
-from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import JSONResponse
+from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, Field
 
+from bilingual_rag.auth.tokens import TokenError, issue_token, read_token
+from bilingual_rag.auth.users import User, authenticate, get_user
 from bilingual_rag.config import (
     ApiSettings,
     DatabaseSettings,
@@ -118,6 +122,18 @@ class UploadResponse(BaseModel):
     embedded: int
 
 
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str
+    expires_in: int
+
+
+class MeResponse(BaseModel):
+    username: str
+    role: str
+    access_levels: list[str]
+
+
 def create_app(services_factory: Callable[[], Services] = default_services) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -139,6 +155,50 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
 
     Svc = Annotated[Services, Depends(services)]
     Conn = Annotated[psycopg.Connection, Depends(connection)]
+    bearer = OAuth2PasswordBearer(tokenUrl="/auth/token", auto_error=False)
+    unauthorized = HTTPException(
+        401, "a valid bearer token is required", headers={"WWW-Authenticate": "Bearer"}
+    )
+
+    def current_user(svc: Svc, conn: Conn, token: Annotated[str | None, Depends(bearer)]) -> User:
+        """The token's user, read from the database now: a deactivated or deleted user is
+        refused even with a token that has not expired."""
+        try:  # no token at all fails here too: read_token(None) raises TokenError
+            user_id = read_token(token, svc.api.jwt_secret)
+        except TokenError:
+            raise unauthorized from None
+        user = get_user(conn, user_id)
+        if user is None or not user.active:
+            raise unauthorized
+        return user
+
+    def current_admin(user: Annotated[User, Depends(current_user)]) -> User:
+        if not user.is_admin:
+            raise HTTPException(403, "only an admin may do this")
+        return user
+
+    CurrentUser = Annotated[User, Depends(current_user)]
+
+    @app.post("/auth/token", response_model=TokenResponse)
+    def login(
+        svc: Svc, conn: Conn, form: Annotated[OAuth2PasswordRequestForm, Depends()]
+    ) -> TokenResponse:
+        """Exchange a username and password for a bearer token. A wrong password and an
+        unknown username get the same answer."""
+        user = authenticate(conn, form.username, form.password)
+        if user is None:
+            raise HTTPException(
+                401, "wrong username or password", headers={"WWW-Authenticate": "Bearer"}
+            )
+        ttl = svc.api.token_ttl_seconds
+        token = issue_token(user.id, svc.api.jwt_secret, ttl_seconds=ttl)
+        return TokenResponse(access_token=token, token_type="bearer", expires_in=ttl)
+
+    @app.get("/auth/me", response_model=MeResponse)
+    def me(user: CurrentUser) -> MeResponse:
+        return MeResponse(
+            username=user.username, role=user.role, access_levels=list(user.access_levels)
+        )
 
     @app.get("/health")
     def health(svc: Svc):
@@ -168,14 +228,14 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
         return body
 
     @app.post("/query", response_model=QueryResponse)
-    def query(body: QueryRequest, svc: Svc, conn: Conn) -> QueryResponse:
+    def query(body: QueryRequest, svc: Svc, conn: Conn, user: CurrentUser) -> QueryResponse:
         try:
             answer = ask(
                 conn,
                 svc.embedder,
                 svc.llm,
                 body.question,
-                svc.api.access_levels,
+                user.access_levels,
                 k=body.k,
                 reranker=svc.reranker,
             )
@@ -196,7 +256,7 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
         )
 
     @app.get("/documents", response_model=list[DocumentOut])
-    def documents(svc: Svc, conn: Conn) -> list[DocumentOut]:
+    def documents(conn: Conn, user: CurrentUser) -> list[DocumentOut]:
         return [
             DocumentOut(
                 id=d.id,
@@ -207,23 +267,14 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
                 access_level=d.access_level,
                 topic=d.topic,
             )
-            for d in list_documents(conn, svc.api.access_levels)
+            for d in list_documents(conn, user.access_levels)
         ]
-
-    def require_admin(svc: Svc, x_admin_key: Annotated[str | None, Header()] = None) -> None:
-        expected = svc.api.admin_api_key
-        if expected is None:
-            raise HTTPException(403, "uploads are disabled (ADMIN_API_KEY is not set)")
-        if x_admin_key is None or not secrets.compare_digest(
-            x_admin_key.encode("utf-8"), expected.encode("utf-8")
-        ):
-            raise HTTPException(401, "a valid X-Admin-Key header is required")
 
     @app.post(
         "/documents",
         status_code=201,
         response_model=UploadResponse,
-        dependencies=[Depends(require_admin)],
+        dependencies=[Depends(current_admin)],
     )
     def upload(
         svc: Svc,

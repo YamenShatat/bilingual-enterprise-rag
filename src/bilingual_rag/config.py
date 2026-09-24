@@ -11,8 +11,6 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from bilingual_rag.ingestion.manifest import ACCESS_LEVELS
-
 DEFAULT_ENV_FILE = Path(".env")
 
 _ENV_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -105,44 +103,40 @@ class DatabaseSettings:
         }
 
 
-MIN_ADMIN_KEY_LENGTH = 16
+MIN_JWT_SECRET_LENGTH = 32
+DEFAULT_TOKEN_TTL_MINUTES = 60
 
 
 @dataclass(frozen=True, slots=True)
 class ApiSettings:
-    """What the HTTP API may do before real authentication exists (Week 7).
+    """How the HTTP API signs login tokens (D-024). Permissions are not settings: each user's
+    access levels live in the database. The secret is hidden from ``repr``."""
 
-    ``access_levels`` are the levels every caller gets; they come from the server's
-    environment, never from a request, so a client cannot widen its own permissions.
-    ``admin_api_key`` guards uploads; None disables them. The key is hidden from ``repr``.
-    """
-
-    access_levels: frozenset[str]
-    admin_api_key: str | None = field(repr=False)
+    jwt_secret: str = field(repr=False)
+    token_ttl_seconds: int = DEFAULT_TOKEN_TTL_MINUTES * 60
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str]) -> "ApiSettings":
-        """``API_ACCESS_LEVELS`` (comma-separated, default ``public``) and ``ADMIN_API_KEY``.
+        """``JWT_SECRET`` (required, at least 32 characters) and ``TOKEN_TTL_MINUTES``
+        (optional, 1 to 1440, default 60).
 
         Raises:
-            ConfigError: a level is unknown, or the admin key is shorter than
-                ``MIN_ADMIN_KEY_LENGTH`` characters.
+            ConfigError: the secret is missing or short, or the lifetime is not 1 to 1440.
         """
-        raw = environ.get("API_ACCESS_LEVELS", "").strip() or "public"
-        levels = frozenset(part.strip() for part in raw.split(",") if part.strip())
-        unknown = levels - set(ACCESS_LEVELS)
-        if unknown or not levels:
+        secret = environ.get("JWT_SECRET", "").strip()
+        if len(secret) < MIN_JWT_SECRET_LENGTH:
             raise ConfigError(
-                f"API_ACCESS_LEVELS has unknown levels {sorted(unknown)}; "
-                f"expected a comma-separated subset of {ACCESS_LEVELS}"
+                f"JWT_SECRET must be set to at least {MIN_JWT_SECRET_LENGTH} random characters "
+                '(for example: python -c "import secrets; print(secrets.token_urlsafe(48))")'
             )
-        key = environ.get("ADMIN_API_KEY", "").strip() or None
-        if key is not None and len(key) < MIN_ADMIN_KEY_LENGTH:
-            raise ConfigError(
-                f"ADMIN_API_KEY must be at least {MIN_ADMIN_KEY_LENGTH} characters "
-                "(or unset, which disables uploads)"
-            )
-        return cls(access_levels=levels, admin_api_key=key)
+        raw = environ.get("TOKEN_TTL_MINUTES", "").strip() or str(DEFAULT_TOKEN_TTL_MINUTES)
+        try:
+            minutes = int(raw)
+        except ValueError:
+            minutes = 0
+        if not 1 <= minutes <= 1440:
+            raise ConfigError(f"TOKEN_TTL_MINUTES must be 1 to 1440, got {raw!r}")
+        return cls(jwt_secret=secret, token_ttl_seconds=minutes * 60)
 
 
 def _merged_env(env_file: Path | None, environ: Mapping[str, str] | None) -> dict[str, str]:

@@ -17,6 +17,18 @@ def pytest_addoption(parser):
     )
 
 
+@pytest.fixture(autouse=True)
+def fast_password_hashing(request, monkeypatch):
+    """Real scrypt costs 0.36 s and 128 MiB per hash by design (D-024), too slow for tests that
+    create users. Each hash records its own cost, so a cheap one still verifies correctly. Mark a
+    test `real_password_cost` to keep the production setting."""
+    if "real_password_cost" in request.keywords:
+        return
+    from bilingual_rag.auth import passwords
+
+    monkeypatch.setattr(passwords, "N", 2**8)
+
+
 def pytest_collection_modifyitems(config, items):
     if config.getoption("--slow"):
         return

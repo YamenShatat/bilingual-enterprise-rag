@@ -51,6 +51,14 @@ api = [
     "uvicorn>=0.30,<1",
     "python-multipart>=0.0.9,<0.1",
     "httpx>=0.27,<1",
+    # Login tokens (JWT, HS256). MIT, maintained; a hand-written JWT invites algorithm-confusion
+    # and expiry bugs. Passwords are hashed with the standard library's hashlib.scrypt (D-024).
+    "pyjwt>=2.8,<3",
+]
+# The web UI (Week 7): Streamlit (Apache-2.0), which talks to the API over HTTP like any other
+# client. Kept out of "api" so the server never depends on it (it pulls in about 70 MB).
+ui = [
+    "streamlit>=1.40,<2",
 ]
 
 [tool.setuptools.packages.find]
@@ -67,6 +75,7 @@ pythonpath = ["tests"]
 markers = [
     "database: needs a reachable PostgreSQL (skipped when it is down; run `docker compose up -d --wait db`)",
     "slow: needs a real embedding model or a local Ollama LLM (large download); run explicitly with `pytest --slow`",
+    "real_password_cost: hash passwords with the production scrypt cost (slow on purpose)",
 ]
 
 [tool.ruff]
