@@ -10,63 +10,22 @@ from dataclasses import replace
 
 import jwt
 import pytest
-from fastapi.testclient import TestClient
 
 from bilingual_rag.api import app as app_module
-from bilingual_rag.api.app import Services, create_app
 from bilingual_rag.auth.users import create_user
-from bilingual_rag.config import ApiSettings
 from bilingual_rag.database.connection import connect
-from bilingual_rag.database.repository import store_document
-from bilingual_rag.embeddings.hashing import HashingEmbedder
-from bilingual_rag.embeddings.indexing import embed_missing
 from bilingual_rag.generation.llm import GenerationError
 from bilingual_rag.ingestion.manifest import ACCESS_LEVELS
+from support.api_app import PASSWORD, SECRET, TOPIC, ScriptedLLM, app_client, seed
 from support.arabic import ARABIC_TRUTH
 from support.docx_builder import docx_bytes, text_para
-from support.samples import make_chunks, make_metadata
 
 pytestmark = pytest.mark.database
-
-TOPIC = "executive bonus pool salary figures"
-SECRET = "test-signing-secret-of-enough-length-0123"
-PASSWORD = "correct horse battery staple"
-EMBEDDER = HashingEmbedder(64)
-
-
-class ScriptedLLM:
-    model_name = "scripted"
-
-    def __init__(self, reply="Answer [1]."):
-        self.reply = reply
-        self.prompts: list[str] = []
-        self.down = False
-
-    def generate(self, system, prompt):
-        self.prompts.append(prompt)
-        if isinstance(self.reply, Exception):
-            raise self.reply
-        return self.reply
-
-    def check(self):
-        if self.down:
-            raise GenerationError("cannot reach Ollama (test)")
 
 
 @pytest.fixture
 def database(fresh_migrated_database):
-    """One committed document per access level, each carrying a marker word, and the users."""
-    with connect(fresh_migrated_database) as conn:
-        for level in ACCESS_LEVELS:
-            metadata = make_metadata(
-                id=f"doc-{level}", path=f"x/{level}.md", title=f"Plan {level}", access_level=level
-            )
-            store_document(conn, metadata, make_chunks(metadata.path, [f"{TOPIC} marker-{level}"]))
-            create_user(conn, f"user-{level}", PASSWORD, role="employee", access_levels=[level])
-        embed_missing(conn, EMBEDDER)
-        create_user(conn, "employee", PASSWORD, role="employee")
-        create_user(conn, "admin", PASSWORD, role="admin")
-    return fresh_migrated_database
+    return seed(fresh_migrated_database)
 
 
 @pytest.fixture
@@ -81,14 +40,7 @@ def login(test_client, username, password=PASSWORD):
 @contextmanager
 def api(database, llm, *, user="user-public", reranker=None, secret=SECRET):
     """A client logged in as ``user`` (None: not logged in)."""
-    services = Services(
-        database=database,
-        api=ApiSettings(jwt_secret=secret),
-        embedder=EMBEDDER,
-        llm=llm,
-        reranker=reranker,
-    )
-    with TestClient(create_app(lambda: services)) as test_client:
+    with app_client(database, llm, reranker=reranker, secret=secret) as test_client:
         if user is not None:
             response = login(test_client, user)
             assert response.status_code == 200, response.text

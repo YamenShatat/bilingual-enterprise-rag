@@ -1,0 +1,19 @@
+# Streamlit settings for the UI (D-025). Read when `streamlit run` starts from the repository root.
+
+[browser]
+# Streamlit sends anonymous usage statistics by default; an app for internal documents should not.
+gatherUsageStats = false
+
+[client]
+# Hide Streamlit's developer toolbar, including its "Deploy" (publish to Streamlit's cloud) button.
+toolbarMode = "viewer"
+
+[server]
+# This machine only. Streamlit's default listens on every network interface (measured: it
+# announced a LAN address and looked up and printed the public IP). Deploying on a network is a
+# deliberate choice, made behind HTTPS, not a default.
+address = "127.0.0.1"
+# No "open a browser / enter your email" prompt on first start.
+headless = true
+# Reject uploads above the API's own 10 MB limit before they are sent to it.
+maxUploadSize = 10
