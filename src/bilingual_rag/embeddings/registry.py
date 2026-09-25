@@ -25,3 +25,23 @@ def make_embedder(name: str) -> Embedder:
         factory = sentence_transformer.bge_m3 if name == "bge-m3" else sentence_transformer.e5_large
         return factory()
     raise ValueError(f"unknown embedder {name!r}, expected one of {EMBEDDER_NAMES}")
+
+
+RERANKER_NAMES = ("bge-reranker-v2-m3",)
+
+
+def make_reranker(name: str):
+    """
+    Raises:
+        ValueError: `name` is not one of `RERANKER_NAMES`.
+        RuntimeError: the "embeddings" extra is not installed.
+    """
+    if name not in RERANKER_NAMES:
+        raise ValueError(f"unknown reranker {name!r}, expected one of {RERANKER_NAMES}")
+    try:
+        from bilingual_rag.retrieval import cross_encoder
+    except ImportError as exc:
+        raise RuntimeError(
+            f'the {name} reranker needs the "embeddings" extra: pip install -e ".[embeddings]"'
+        ) from exc
+    return cross_encoder.bge_reranker_v2_m3()

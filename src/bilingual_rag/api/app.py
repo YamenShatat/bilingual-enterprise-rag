@@ -37,12 +37,13 @@ from bilingual_rag.database.health import check_health
 from bilingual_rag.database.repository import get_document, list_documents, store_document
 from bilingual_rag.embeddings.base import Embedder
 from bilingual_rag.embeddings.indexing import embed_missing
-from bilingual_rag.embeddings.registry import make_embedder
+from bilingual_rag.embeddings.registry import make_reranker
 from bilingual_rag.generation.answer import ask
 from bilingual_rag.generation.llm import LLM, GenerationError, OllamaLLM
 from bilingual_rag.ingestion.loaders import DocumentLoadError
 from bilingual_rag.ingestion.manifest import FORMATS, DocumentMetadata, ManifestError
 from bilingual_rag.ingestion.pipeline import ingest_file
+from bilingual_rag.retrieval.rerank import Reranker
 
 MAX_UPLOAD_BYTES = 10 * 1024 * 1024
 MAX_QUESTION_CHARS = 2000
@@ -56,15 +57,21 @@ class Services:
     api: ApiSettings
     embedder: Embedder
     llm: LLM
+    reranker: Reranker | None = None
 
 
 def default_services() -> Services:
-    """The real configuration: ``.env`` plus the environment, bge-m3 and qwen3:8b."""
+    """The real configuration: ``.env`` plus the environment, bge-m3 (16-bit on CUDA),
+    bge-reranker-v2-m3 and qwen3:8b. 16-bit keeps all three inside 8 GB of GPU memory, which
+    measured 39% faster per question than with bge-m3 in 32-bit (D-023)."""
+    from bilingual_rag.embeddings.sentence_transformer import bge_m3
+
     return Services(
         database=load_database_settings(),
         api=load_api_settings(),
-        embedder=make_embedder("bge-m3"),
+        embedder=bge_m3(half=True),
         llm=OllamaLLM(),
+        reranker=make_reranker("bge-reranker-v2-m3"),
     )
 
 
@@ -145,6 +152,7 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
         except psycopg.OperationalError:
             database["detail"] = "unreachable"
         llm = {"ok": True, "model": svc.llm.model_name, "detail": None}
+        reranker = svc.reranker.model_name if svc.reranker is not None else None
         try:
             svc.llm.check()
         except GenerationError as exc:
@@ -153,6 +161,7 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
             "status": "ok" if database["ok"] and llm["ok"] else "degraded",
             "database": database,
             "llm": llm,
+            "reranker": reranker,
         }
         if not database["ok"]:
             return JSONResponse(body, status_code=503)
@@ -162,7 +171,13 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
     def query(body: QueryRequest, svc: Svc, conn: Conn) -> QueryResponse:
         try:
             answer = ask(
-                conn, svc.embedder, svc.llm, body.question, svc.api.access_levels, k=body.k
+                conn,
+                svc.embedder,
+                svc.llm,
+                body.question,
+                svc.api.access_levels,
+                k=body.k,
+                reranker=svc.reranker,
             )
         except EmbeddingModelError as exc:
             raise HTTPException(503, "no documents have been embedded yet") from exc

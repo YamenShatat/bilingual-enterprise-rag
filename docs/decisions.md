@@ -954,3 +954,97 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   hybrid from vector with a lexical embedder. All 6 are caught after the hand-built embedder
   was added.
 - **Status:** Accepted, with vector search as the default.
+
+## D-023: A cross-encoder reranker (bge-reranker-v2-m3), measured, and used by default
+
+- **Decision:** `retrieval/rerank.py` defines a `Reranker` protocol and `rerank()`;
+  `retrieval/cross_encoder.py` wraps `BAAI/bge-reranker-v2-m3` (Apache-2.0, multilingual, scores
+  0 to 1). `retrieve(..., reranker=)` fetches 20 candidates and the reranker keeps the top `k`.
+  `SearchResult` gains `rerank_score`; `score` stays the cosine similarity, so nothing that read it
+  changes meaning. `ask()` takes an optional reranker, and **the API uses vector search plus the
+  reranker by default**. Scripts: `evaluate_retrieval.py --reranker`, `evaluate_answers.py
+  --reranker`.
+- **Model choice (asked for and approved):** read from each model card before downloading.
+  bge-reranker-v2-m3 (2.27 GB of weights, 2.29 GB downloaded with config and tokenizer files); the
+  smaller `mmarco-mMiniLMv2` (471 MB, trained on machine-translated data) was the alternative.
+  Excluded: `gte-multilingual-reranker-base` (needs `trust_remote_code=True`, which runs Python
+  code downloaded with the model) and `jina-reranker-v2-base-multilingual` (CC-BY-NC-4.0,
+  non-commercial). A first probe before any code: a relevant pair scored 0.995 (English), 0.994
+  (Arabic) and 0.980 / 0.948 across languages; an unrelated pair 0.0000; the relocation question
+  against the leave policy (on topic, fact absent) 0.0028.
+- **Retrieval, measured (bge-m3, the 50 questions, 20 candidates):**
+
+  | Mode | Overall R@1 | MRR | Same-language R@1 | Near-miss R@1 | Cross-lingual R@1 |
+  | --- | --- | --- | --- | --- | --- |
+  | Vector | 0.826 | 0.913 | 0.808 | 0.750 | 0.917 |
+  | Hybrid (D-022) | 0.717 | 0.778 | 0.962 | 0.875 | 0.083 |
+  | **Vector + rerank** | **0.978** | **0.989** | 0.962 | **1.000** | **1.000** |
+  | Hybrid + rerank | 0.978 | 0.989 | 0.962 | 1.000 | 1.000 |
+
+  Vector search already has the right document in its top 3 for every question (R@3 = 1.000), so
+  the only room left was the order, which is what a cross-encoder fixes. Hybrid adds no candidate
+  the reranker can use here, so it is identical after reranking and not used. The one rank-1 miss
+  (q020, an Arabic hotel-limit question) put the English translation of the same policy first,
+  which states the same USD 220: the translated-pair undercount already seen in D-019.
+- **A refusal signal, better than cosine but not clean (measured, top rerank score):** the lowest
+  answerable question scored 0.021 and the highest absent-fact one 0.206, so no threshold
+  separates them. The lowest answerable scores are all cross-lingual (0.021, 0.164, 0.168, 0.239):
+  the reranker ranks them right but scores them lower, so a high floor would again refuse the
+  other language first. At **0.01** no answerable question is refused and two of the four
+  absent-fact ones are (cosine's floor caught one); the nearest answerable score, 0.021, is about
+  twice the floor. **Chosen on the same 50 questions, with four absent-fact ones: a thin margin,
+  not a calibrated threshold.** A reranked result is judged by its rerank score alone, never by
+  its cosine (next point).
+- **End to end, the first attempt was worse, and two causes were found and fixed:**
+
+  | Configuration | Answered (of 46) | Cites expected | Right language | Absent refused |
+  | --- | --- | --- | --- | --- |
+  | Baseline (D-019: vector, old prompt) | 44 | 42 | 44 of 44 | 4 of 4 (1 by floor) |
+  | Rerank, first attempt | 41 | 38 | 41 of 41 | 4 of 4 (2 by floor) |
+  | New prompt, vector only | 46 | 38 | 46 of 46 | 4 of 4 (1 by floor) |
+  | **New prompt, vector + rerank (chosen)** | **45** | **44** | 45 of 45 | 4 of 4 (2 by floor) |
+
+  1. **The two floors fought.** q043's right chunk has rerank score 0.525 but cosine 0.488; the
+     reranker surfaced it and D-019's cosine floor dropped it. Fix: reranked results are filtered
+     by the rerank floor only.
+  2. **The model copied the example citation number.** Rerank scores are sharply split (0.98
+     against 0.003), so the floor often leaves one source, and with one source labelled `[1]` the
+     model cited `[3]` or `[٤]`. Three of the five invented numbers across both runs were `[3]`,
+     and the system prompt's example read "for example [1] or [1][3]". Tested on those questions
+     before changing code: with the example replaced by "use only the numbers shown at the start
+     of the sources; never invent a number", 4 of 5 cited correctly with the reranker (1 of 5
+     before). A test now fails if the system prompt contains any example citation.
+  After both fixes, every one of the 45 answered questions cites a document that holds its fact
+  (44 the expected document, q004 its translation), including q029 (D-019's one wrong citation)
+  and q043 (D-019's retrieval miss, answered correctly for the first time: "10,000 USD", checked
+  against the contract procedure's table). The one refusal is q045, uncited: the model wrote
+  `[٤]` with one source, and the system refused rather than guess.
+- **What the prompt change costs without the reranker, stated plainly:** with vector search only,
+  the new prompt answered all 46 but cited worse (38), and **produced one confidently wrong
+  answer that passed every gate**: q043 "150,000 USD", a salary figure from the compensation
+  bands, cited as if it were the contract limit (the old prompt refused this question). Five of
+  its eight misses were translated-pair citations. The reranker is therefore the default, and the
+  no-reranker path is documented as weaker, not recommended.
+- **Memory and speed, measured:** in 16-bit the reranker takes 1,083 MiB of GPU memory. With bge-m3
+  in 32-bit (about 2.2 GB) as well, the 8 GB GPU was full (7,573 MiB) and ten questions took
+  61.5 s; with bge-m3 in 16-bit, 37.5 s (39% faster). 16-bit query embeddings gave the same top 5
+  as 32-bit for 49 of 50 questions and the same Recall@k after reranking (R@1 0.978, cross-lingual
+  1.000), so the API loads bge-m3 in 16-bit (`bge_m3(half=True)`); the ingestion script still
+  embeds documents in 32-bit. Over real HTTP with all three models loaded (7,775 of 8,188 MiB,
+  qwen3 100% on the GPU): warm answers in 2.6 to 5.9 s, and a clearly off-topic question refused by
+  the rerank floor in 0.3 s without calling the LLM.
+- **Unchanged and re-checked:** the injection tests against the real model (D-019) pass with the
+  new prompt; the self-citing planted document is still the known `xfail`. Reranking only reorders
+  what the access-filtered search returned; a test plants one document per access level and checks
+  the reranker never sees another level's text.
+- **Two operational notes:** one evaluation run failed with a database connection timeout while
+  the database was healthy; free memory was 4.0 GB before the rerun, consistent with memory
+  pressure from loading two models on a 15.8 GB machine (not proven). And a first count of this
+  work's new tests was wrong (a `git stash` left the new, untracked test files in place); counted
+  again against a clean worktree: 53.
+- **Validation:** 53 new tests (reranking and the cross-encoder wrapper with stubs, 4 `slow` tests
+  with the real model, reranking in `retrieve`, the floors, the API, 16-bit loading, the runner).
+  38 deliberate breakages across seven files; one missed on the first run (`run_questions` never
+  checked to pass the reranker on to each question), caught after a test was added.
+- **Status:** Accepted. Closes Week 6: hybrid search built and measured (not used: D-022), and a
+  reranker that measurably improves retrieval and, after two fixes, answers.

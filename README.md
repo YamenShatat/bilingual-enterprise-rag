@@ -4,7 +4,7 @@ A bilingual (Arabic / English) knowledge assistant for enterprise documents, bui
 hybrid retrieval, reranking, grounded answers with citations, document-level access control and a
 measured evaluation, served through a FastAPI backend.
 
-> **Status: early development (Week 3 of 8 — retrieval evaluation).**
+> **Status: in development (Weeks 1-6 of 8 done — through hybrid search and reranking).**
 > Nothing below is implemented yet unless it is listed under [Current progress](#current-progress).
 
 ## Goals
@@ -56,7 +56,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Context builder: numbered, whole-chunk evidence within a character budget measured in the LLM's own tokenizer (see [`docs/decisions.md`](docs/decisions.md) D-018)
 - [x] Grounded answers with citations, or a refusal the system (not the model) enforces at four gates; measured on the 50 questions, including a prompt-injection comparison (see [`docs/decisions.md`](docs/decisions.md) D-019 — **Week 4's goal**)
 - [x] FastAPI backend: `POST /query`, `GET /documents`, `POST /documents` (admin key), `GET /health`; access levels come from the server, never the request (see [`docs/decisions.md`](docs/decisions.md) D-020 — **Week 5's goal**)
-- [ ] Hybrid search and reranking
+- [x] Keyword search (PostgreSQL full-text, Arabic and English stemmers), hybrid fusion (measured: hurts cross-lingual retrieval, so not used), and a multilingual cross-encoder reranker used by default (see [`docs/decisions.md`](docs/decisions.md) D-021 to D-023 — **Week 6's goal**)
 - [ ] UI, authentication and permissions
 - [ ] Docker and CI/CD
 
@@ -77,20 +77,33 @@ questions over 46 chunks — a small, directional result, not a claim about eith
 general.** `paraphrase-multilingual-mpnet-base-v2` was not evaluated: it truncates 78% of
 this corpus's chunks (D-006 addendum).
 
-Week 4 answer evaluation, the same 50 questions through `ask()` (bge-m3 retrieval, qwen3:8b
-answers), full detail in D-019:
+Week 6 retrieval modes, bge-m3, the same 50 questions (D-022, D-023):
 
-| | Count |
-| --- | --- |
-| Answerable questions answered | 44 of 46 |
-| Answers citing the document known to hold the fact | 42 of 46 |
-| Answers in the question's language | 44 of 44 |
-| Deliberately unanswerable questions refused | 4 of 4 |
+| | Overall R@1 | MRR | Cross-lingual R@1 |
+| --- | --- | --- | --- |
+| Vector | 0.826 | 0.913 | 0.917 |
+| Keyword (PostgreSQL full-text) | 0.522 | 0.627 | 0.000 |
+| Hybrid (Reciprocal Rank Fusion) | 0.717 | 0.778 | 0.083 |
+| **Vector + reranker (bge-reranker-v2-m3)** | **0.978** | **0.989** | **1.000** |
 
-**Answer correctness is not scored** (the questions have no reference answers); every miss and
-nine answers were checked by hand against the source text. One answer stated a correct fact
-with the wrong citation, and a planted document that cites itself can still mislead the model
-(a known limitation, D-019).
+Hybrid fusion helps same-language questions but wrecks cross-lingual ones: the keyword list
+only ever holds chunks in the question's language, and fusion rewards chunks found by both
+searches. It is kept as an option, not used; the reranker is the default.
+
+Answer evaluation, the same 50 questions through `ask()` with qwen3:8b (D-019, D-023):
+
+| | Week 4 (vector) | Week 6 (vector + reranker) |
+| --- | --- | --- |
+| Answerable questions answered | 44 of 46 | 45 of 46 |
+| Answers citing the document known to hold the fact | 42 of 46 | 44 of 46 |
+| Answers in the question's language | 44 of 44 | 45 of 45 |
+| Deliberately unanswerable questions refused | 4 of 4 | 4 of 4 |
+
+**Answer correctness is not scored** (the questions have no reference answers); every miss was
+checked by hand against the source text. With the reranker, every answered question cites a
+document that holds its fact (one cites the translated copy). The refusal floors were chosen on
+these same questions, and a planted document that cites itself can still mislead the model
+(known limitations, D-019, D-023).
 
 ## Development setup (Windows / PowerShell)
 
@@ -197,6 +210,8 @@ again to compare another model or chunk size (results: D-016).
 ```powershell
 python scripts/evaluate_retrieval.py --embedder bge-m3
 python scripts/evaluate_retrieval.py --embedder e5-large --chunk-size 600 --overlap 100
+python scripts/evaluate_retrieval.py --mode hybrid                        # vector, keyword or hybrid
+python scripts/evaluate_retrieval.py --reranker bge-reranker-v2-m3        # rerank the candidates
 ```
 
 ### Asking questions (needs Ollama)
@@ -230,6 +245,7 @@ questions and save every answer for reading:
 
 ```powershell
 python scripts/evaluate_answers.py --output answers.json
+python scripts/evaluate_answers.py --reranker bge-reranker-v2-m3   # the configuration the API uses
 ```
 
 ### Running the API (needs Ollama)
@@ -239,6 +255,8 @@ pip install -e ".[embeddings,api]"
 uvicorn bilingual_rag.api.app:create_app --factory --port 8000
 ```
 
+The API loads bge-m3 (16-bit on the GPU), the bge-reranker-v2-m3 reranker (about 2.3 GB, downloaded
+on first start) and talks to qwen3:8b in Ollama; together they fit in 8 GB of GPU memory (D-023).
 Interactive documentation is served at `http://127.0.0.1:8000/docs`. Two settings in `.env`
 (see `.env.example`) control what callers may do until real users arrive in Week 7:
 

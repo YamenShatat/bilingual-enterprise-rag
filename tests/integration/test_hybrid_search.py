@@ -194,3 +194,52 @@ class TestSearchChunkIds:
 
     def test_an_empty_list_matches_nothing(self, conn):
         assert search(conn, EMBEDDER, "leave", EVERYONE, chunk_ids=[]) == []
+
+
+class ReverseReranker:
+    """Scores the retriever's last candidate highest, so reranking visibly changes the order."""
+
+    model_name = "reverse"
+
+    def __init__(self):
+        self.seen: list[list[str]] = []
+
+    def score(self, query, texts):
+        self.seen.append(list(texts))
+        return [float(i) for i in range(len(texts))]
+
+
+class TestRetrieveWithReranker:
+    def test_the_reranker_orders_the_results_and_sets_rerank_score(self, table):
+        results = retrieve(table, TableEmbedder(), QUERY, EVERYONE, k=3, reranker=ReverseReranker())
+        assert texts(results) == [C, B, A]
+        assert [r.rerank_score for r in results] == [2.0, 1.0, 0.0]
+
+    def test_the_reranker_sees_rerank_candidates_not_just_k(self, table):
+        reranker = ReverseReranker()
+        results = retrieve(table, TableEmbedder(), QUERY, EVERYONE, k=1, reranker=reranker)
+        assert reranker.seen == [[A, B, C]]  # three candidates for one result
+        assert texts(results) == [C]
+
+    def test_rerank_candidates_limits_what_the_reranker_sees(self, table):
+        reranker = ReverseReranker()
+        retrieve(
+            table, TableEmbedder(), QUERY, EVERYONE, k=1, reranker=reranker, rerank_candidates=2
+        )
+        assert reranker.seen == [[A, B]]
+
+    def test_without_a_reranker_nothing_is_reranked(self, table):
+        results = retrieve(table, TableEmbedder(), QUERY, EVERYONE, k=3)
+        assert [r.rerank_score for r in results] == [None, None, None]
+
+    @pytest.mark.parametrize("level", ACCESS_LEVELS)
+    def test_the_reranker_only_ever_sees_permitted_chunks(self, store_connection, level):
+        for lvl in ACCESS_LEVELS:
+            metadata = make_metadata(id=f"doc-{lvl}", path=f"x/{lvl}.md", access_level=lvl)
+            store_document(
+                store_connection, metadata, make_chunks(metadata.path, [f"bonus secret {lvl}"])
+            )
+        embed_missing(store_connection, EMBEDDER)
+        reranker = ReverseReranker()
+        retrieve(store_connection, EMBEDDER, "bonus secret", {level}, k=5, reranker=reranker)
+        assert reranker.seen == [[f"bonus secret {level}"]]

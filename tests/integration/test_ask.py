@@ -72,3 +72,33 @@ def test_no_permitted_levels_means_no_results_and_no_model_call(conn):
 def test_a_bare_string_of_levels_is_refused(conn):
     with pytest.raises(TypeError, match="not one string"):
         ask(conn, HashingEmbedder(64), RecordingLLM(), QUESTION, "employee")
+
+
+class TopLast:
+    model_name = "top-last"
+
+    def score(self, query, texts):
+        return [float(i) for i in range(len(texts))]
+
+
+def test_ask_reranks_when_given_a_reranker(conn):
+    plain, reranked = RecordingLLM(), RecordingLLM()
+    ask(conn, HashingEmbedder(64), plain, QUESTION, set(ACCESS_LEVELS), k=5, min_score=0.0)
+    ask(conn, HashingEmbedder(64), reranked, QUESTION, set(ACCESS_LEVELS), k=5, reranker=TopLast())
+    first_source = [p.split("\n")[1] for p in (plain.prompts[0], reranked.prompts[0])]
+    assert first_source[0] != first_source[1]  # the reranker changed which source is [1]
+
+
+def test_the_rerank_floor_is_passed_on(conn):
+    llm = RecordingLLM()
+    answer = ask(
+        conn,
+        HashingEmbedder(64),
+        llm,
+        QUESTION,
+        set(ACCESS_LEVELS),
+        reranker=TopLast(),
+        min_rerank_score=1000.0,
+    )
+    assert answer.refusal == LOW_SCORE
+    assert llm.prompts == []

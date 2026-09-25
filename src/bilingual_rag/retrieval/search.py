@@ -26,10 +26,14 @@ class SearchResult:
     """One matching chunk. From ``search()``, ``score`` is cosine similarity (1 minus
     pgvector's ``<=>`` distance): 1.0 is identical direction, higher is more similar. It is a
     ranking signal, not a probability, and by itself says nothing about whether the match is
-    correct. Other retrievers (``keyword_search``) document their own scale."""
+    correct. Other retrievers (``keyword_search``) document their own scale.
+
+    ``rerank_score`` is set only after reranking (``retrieval.rerank``): the cross-encoder's
+    relevance, 0 to 1. It never replaces ``score``, so code reading ``score`` keeps its meaning."""
 
     chunk: StoredChunk
     score: float
+    rerank_score: float | None = None
 
 
 def search(

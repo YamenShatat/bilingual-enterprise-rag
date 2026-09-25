@@ -9,6 +9,7 @@ from bilingual_rag.embeddings.base import Embedder
 from bilingual_rag.evaluation.metrics import document_rank, mean_reciprocal_rank, recall_at_k
 from bilingual_rag.evaluation.questions import EvaluationQuestion
 from bilingual_rag.retrieval.hybrid import retrieve
+from bilingual_rag.retrieval.rerank import Reranker
 
 DEFAULT_K_VALUES = (1, 3, 5)
 # Chunks are fetched at document granularity (a question is "answered" by a document, not a
@@ -22,8 +23,8 @@ CHUNK_FETCH_K = 20
 class QuestionOutcome:
     """One question's result. ``rank`` is the expected document's 1-based rank, or None if
     it was not found in the top ``CHUNK_FETCH_K`` chunks, or the question has no expected
-    document (``absent_fact``). ``top_score`` is the top result's score, or None if search
-    returned nothing."""
+    document (``absent_fact``). ``top_score`` is the top result's score (its ``rerank_score``
+    when a reranker ran), or None if search returned nothing."""
 
     question: EvaluationQuestion
     rank: int | None
@@ -37,9 +38,16 @@ def run_question(
     allowed_access_levels: Collection[str],
     *,
     mode: str = "vector",
+    reranker: Reranker | None = None,
 ) -> QuestionOutcome:
     results = retrieve(
-        conn, embedder, question.question, allowed_access_levels, mode=mode, k=CHUNK_FETCH_K
+        conn,
+        embedder,
+        question.question,
+        allowed_access_levels,
+        mode=mode,
+        k=CHUNK_FETCH_K,
+        reranker=reranker,
     )
     ranked_document_ids: list[str] = []
     for result in results:
@@ -50,9 +58,11 @@ def run_question(
         if question.expected_document_id is None
         else document_rank(ranked_document_ids, question.expected_document_id)
     )
-    return QuestionOutcome(
-        question=question, rank=rank, top_score=results[0].score if results else None
-    )
+    top_score = None
+    if results:
+        top = results[0]
+        top_score = top.rerank_score if top.rerank_score is not None else top.score
+    return QuestionOutcome(question=question, rank=rank, top_score=top_score)
 
 
 def run_questions(
@@ -62,10 +72,14 @@ def run_questions(
     allowed_access_levels: Collection[str],
     *,
     mode: str = "vector",
+    reranker: Reranker | None = None,
 ) -> list[QuestionOutcome]:
     """``mode`` is one of ``bilingual_rag.retrieval.hybrid.MODES``. In ``keyword`` mode a
     question's ``top_score`` is a ``ts_rank_cd`` value, not a cosine similarity."""
-    return [run_question(conn, embedder, q, allowed_access_levels, mode=mode) for q in questions]
+    return [
+        run_question(conn, embedder, q, allowed_access_levels, mode=mode, reranker=reranker)
+        for q in questions
+    ]
 
 
 def _block(outcomes: Sequence[QuestionOutcome], k_values: Sequence[int]) -> dict:
@@ -96,10 +110,18 @@ def summarize(
         group = [o for o in answerable if o.question.category == category]
         summary[f"category:{category}"] = _block(group, k_values)
 
+    # The refusal signal: a threshold separates the two groups only if the lowest answerable
+    # top score is above the highest absent-fact one (D-019, D-023).
+    answerable_scores = [o.top_score for o in answerable if o.top_score is not None]
+    summary["answerable_top_score"] = {
+        "count": len(answerable_scores),
+        "min_top_score": min(answerable_scores, default=None),
+    }
     if absent:
         scores = [o.top_score for o in absent if o.top_score is not None]
         summary["absent_fact"] = {
             "count": len(absent),
             "mean_top_score": sum(scores) / len(scores) if scores else None,
+            "max_top_score": max(scores, default=None),
         }
     return summary

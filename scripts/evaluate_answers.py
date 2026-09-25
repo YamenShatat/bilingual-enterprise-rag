@@ -8,6 +8,7 @@ Usage (from the repository root, with the project environment active and Ollama 
 
     python scripts/evaluate_answers.py
     python scripts/evaluate_answers.py --output answers.json
+    python scripts/evaluate_answers.py --reranker bge-reranker-v2-m3
 """
 
 import argparse
@@ -21,7 +22,12 @@ import psycopg
 
 from bilingual_rag.config import ConfigError, load_database_settings
 from bilingual_rag.database.connection import connect
-from bilingual_rag.embeddings.registry import EMBEDDER_NAMES, make_embedder
+from bilingual_rag.embeddings.registry import (
+    EMBEDDER_NAMES,
+    RERANKER_NAMES,
+    make_embedder,
+    make_reranker,
+)
 from bilingual_rag.evaluation.answers import run_answer_questions, summarize_answers
 from bilingual_rag.evaluation.questions import QuestionsError, load_questions
 from bilingual_rag.generation.llm import DEFAULT_MODEL, GenerationError, OllamaLLM
@@ -36,6 +42,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--embedder", choices=EMBEDDER_NAMES, default="bge-m3")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="Ollama model name")
+    parser.add_argument("--reranker", choices=RERANKER_NAMES, help="rerank the evidence (D-023)")
     parser.add_argument("--questions", type=Path, default=DEFAULT_QUESTIONS)
     parser.add_argument("--output", type=Path, help="write every question and answer as JSON")
     return parser.parse_args(argv)
@@ -47,6 +54,7 @@ def main() -> int:
         settings = load_database_settings(ENV_FILE)
         questions = load_questions(args.questions)
         embedder = make_embedder(args.embedder)
+        reranker = make_reranker(args.reranker) if args.reranker else None
     except (ConfigError, QuestionsError, RuntimeError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
@@ -62,7 +70,9 @@ def main() -> int:
     started = time.perf_counter()
     try:
         # Every access level: this measures answering, not permissions (tested separately).
-        outcomes = run_answer_questions(conn, embedder, llm, questions, set(ACCESS_LEVELS))
+        outcomes = run_answer_questions(
+            conn, embedder, llm, questions, set(ACCESS_LEVELS), reranker=reranker
+        )
     except GenerationError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -70,7 +80,10 @@ def main() -> int:
         conn.close()
     elapsed = time.perf_counter() - started
 
-    print(f"embedder={embedder.model_name} llm={llm.model_name} questions={len(questions)}")
+    print(
+        f"embedder={embedder.model_name} reranker={args.reranker} llm={llm.model_name} "
+        f"questions={len(questions)}"
+    )
     print(f"elapsed={elapsed:.0f}s\n")
     for name, block in summarize_answers(outcomes).items():
         print(

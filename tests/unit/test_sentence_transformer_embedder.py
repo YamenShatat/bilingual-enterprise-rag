@@ -167,6 +167,7 @@ def _capture_init(monkeypatch, captured):
         query_prefix="",
         document_prefix="",
         batch_size=32,
+        half=False,
         _model=None,
     ):
         captured["model_name"] = model_name
@@ -199,3 +200,38 @@ class TestE5LargeFactory:
             "query_prefix": "query: ",
             "document_prefix": "passage: ",
         }
+
+
+class TestHalfPrecision:
+    @pytest.fixture
+    def captured(self, monkeypatch):
+        from bilingual_rag.embeddings import sentence_transformer
+
+        calls = []
+
+        def fake_constructor(name, **kwargs):
+            calls.append(kwargs)
+            return FakeModel()
+
+        monkeypatch.setattr(sentence_transformer, "SentenceTransformer", fake_constructor)
+        return calls
+
+    def test_half_on_cuda_loads_16_bit_weights(self, captured):
+        import torch
+
+        SentenceTransformerEmbedder("org/m", device="cuda", half=True)
+        assert captured == [{"device": "cuda", "model_kwargs": {"dtype": torch.float16}}]
+
+    def test_half_is_ignored_on_cpu(self, captured):
+        SentenceTransformerEmbedder("org/m", device="cpu", half=True)
+        assert captured == [{"device": "cpu"}]
+
+    def test_full_precision_is_the_default(self, captured):
+        SentenceTransformerEmbedder("org/m", device="cuda")
+        assert captured == [{"device": "cuda"}]
+
+    def test_bge_m3_passes_half_on(self, captured):
+        import torch
+
+        bge_m3(device="cuda", half=True)
+        assert captured[0]["model_kwargs"] == {"dtype": torch.float16}

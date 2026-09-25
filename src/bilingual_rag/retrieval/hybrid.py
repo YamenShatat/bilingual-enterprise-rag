@@ -18,6 +18,7 @@ import psycopg
 
 from bilingual_rag.embeddings.base import Embedder
 from bilingual_rag.retrieval.keyword import keyword_search
+from bilingual_rag.retrieval.rerank import Reranker, rerank
 from bilingual_rag.retrieval.search import DEFAULT_K, SearchResult, search
 
 MODES = ("vector", "keyword", "hybrid")
@@ -96,17 +97,27 @@ def retrieve(
     mode: str = "vector",
     k: int = DEFAULT_K,
     language: str | None = None,
+    reranker: Reranker | None = None,
+    rerank_candidates: int = DEFAULT_CANDIDATES,
 ) -> list[SearchResult]:
     """Search in one of ``MODES``. In ``keyword`` mode the embedder is not used, and ``score``
     is ``ts_rank_cd``, not a cosine similarity.
 
+    With a ``reranker``, the search fetches ``max(k, rerank_candidates)`` candidates and the
+    reranker picks the top ``k`` (D-023); each result then has ``rerank_score`` set.
+
     Raises:
         ValueError: ``mode`` is not one of ``MODES``.
     """
+    depth = k if reranker is None else max(k, rerank_candidates)
     if mode == "vector":
-        return search(conn, embedder, query, allowed_access_levels, k=k, language=language)
-    if mode == "keyword":
-        return keyword_search(conn, query, allowed_access_levels, k=k, language=language)
-    if mode == "hybrid":
-        return hybrid_search(conn, embedder, query, allowed_access_levels, k=k, language=language)
-    raise ValueError(f"unknown mode {mode!r}, expected one of {MODES}")
+        results = search(conn, embedder, query, allowed_access_levels, k=depth, language=language)
+    elif mode == "keyword":
+        results = keyword_search(conn, query, allowed_access_levels, k=depth, language=language)
+    elif mode == "hybrid":
+        results = hybrid_search(
+            conn, embedder, query, allowed_access_levels, k=depth, language=language
+        )
+    else:
+        raise ValueError(f"unknown mode {mode!r}, expected one of {MODES}")
+    return results if reranker is None else rerank(reranker, query, results, k=k)
