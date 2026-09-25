@@ -1,4 +1,4 @@
-"""Run the question set through `search()` and summarize Recall@k and MRR."""
+"""Run the question set through a retriever and summarize Recall@k and MRR."""
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
@@ -8,7 +8,7 @@ import psycopg
 from bilingual_rag.embeddings.base import Embedder
 from bilingual_rag.evaluation.metrics import document_rank, mean_reciprocal_rank, recall_at_k
 from bilingual_rag.evaluation.questions import EvaluationQuestion
-from bilingual_rag.retrieval.search import search
+from bilingual_rag.retrieval.hybrid import retrieve
 
 DEFAULT_K_VALUES = (1, 3, 5)
 # Chunks are fetched at document granularity (a question is "answered" by a document, not a
@@ -35,8 +35,12 @@ def run_question(
     embedder: Embedder,
     question: EvaluationQuestion,
     allowed_access_levels: Collection[str],
+    *,
+    mode: str = "vector",
 ) -> QuestionOutcome:
-    results = search(conn, embedder, question.question, allowed_access_levels, k=CHUNK_FETCH_K)
+    results = retrieve(
+        conn, embedder, question.question, allowed_access_levels, mode=mode, k=CHUNK_FETCH_K
+    )
     ranked_document_ids: list[str] = []
     for result in results:
         if result.chunk.document.id not in ranked_document_ids:
@@ -56,8 +60,12 @@ def run_questions(
     embedder: Embedder,
     questions: Sequence[EvaluationQuestion],
     allowed_access_levels: Collection[str],
+    *,
+    mode: str = "vector",
 ) -> list[QuestionOutcome]:
-    return [run_question(conn, embedder, q, allowed_access_levels) for q in questions]
+    """``mode`` is one of ``bilingual_rag.retrieval.hybrid.MODES``. In ``keyword`` mode a
+    question's ``top_score`` is a ``ts_rank_cd`` value, not a cosine similarity."""
+    return [run_question(conn, embedder, q, allowed_access_levels, mode=mode) for q in questions]
 
 
 def _block(outcomes: Sequence[QuestionOutcome], k_values: Sequence[int]) -> dict:

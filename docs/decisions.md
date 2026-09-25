@@ -905,3 +905,52 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
 - **Limits:** `ts_rank_cd` is not BM25 (no IDF, no length normalization by default); hybrid
   search uses only its rank order, which blunts this, but a rare exact term is not boosted.
 - **Status:** Accepted. Recall@k of keyword search alone and fused with vector search: D-022.
+
+## D-022: Hybrid search by Reciprocal Rank Fusion, measured, and not the default
+
+- **Decision:** `retrieval/hybrid.py` provides `hybrid_search` (vector and keyword search, top
+  20 of each, fused with Reciprocal Rank Fusion, `1 / (60 + rank)` summed per chunk) and
+  `retrieve(..., mode=)` for `vector`, `keyword` and `hybrid`, shared by the evaluation and,
+  next, `ask()`. Hybrid results keep their **cosine similarity** as `score`, including chunks only
+  the keyword search found (scored with one more vector query restricted to those chunk ids), so
+  the answer step's 0.50 floor (D-019) keeps its meaning; only the order comes from RRF.
+  `scripts/evaluate_retrieval.py --mode` measures any of the three. **The default stays
+  `vector`**, because of the measurement below.
+- **Why RRF:** it combines rankings by position alone, so cosine similarity and `ts_rank_cd`
+  (incompatible scales) are never mixed, and it has one constant, left at the original paper's
+  60 rather than tuned on 50 questions.
+- **Measured (bge-m3, the 50 evaluation questions, 1200/200 chunking, every access level):**
+
+  | Mode | Overall R@1 / R@3 / R@5 | MRR | Same-language R@1 | Near-miss R@1 | Cross-lingual R@1 / R@5 |
+  | --- | --- | --- | --- | --- | --- |
+  | Vector | 0.826 / 1.000 / 1.000 | 0.913 | 0.808 | 0.750 | **0.917 / 1.000** |
+  | Keyword | 0.522 / 0.717 / 0.739 | 0.627 | 0.731 | 0.625 | 0.000 / 0.083 |
+  | Hybrid (RRF) | 0.717 / 0.783 / 0.826 | 0.778 | **0.962** | **0.875** | **0.083 / 0.417** |
+
+  Hybrid fixes most same-language top-1 misses (0.808 to 0.962) and helps near-misses, where an
+  exact number or term matters. It **wrecks cross-lingual retrieval** (0.917 to 0.083), the
+  retrieval direction this project exists to serve, and overall it is worse than vector alone.
+- **The mechanism, checked question by question, not assumed:** on the 12 cross-lingual
+  questions the right chunk was vector rank 1 in 11 cases, and fused rank 3 to 13 in most of
+  them. **Every chunk ranked above it appeared in both lists** (7 of 7, 10 of 10, 12 of 12, and
+  so on). RRF's defining rule, "found by both beats first in one", is biased against the other
+  language here: the keyword list can only ever contain chunks in the question's language, so
+  its vote always goes to the wrong language. The small corpus sharpens this: the vector top 20
+  covers 43% of the 46 chunks, so 92 of 175 keyword hits were also in the vector list and
+  collected two votes.
+- **What was not done, on purpose:** keyword weights or the RRF constant were not tuned until
+  the numbers looked better. With 50 questions (12 cross-lingual), any weight chosen here would
+  be fitted to the test set. The principled fix is to use retrieval for candidates and let a
+  cross-encoder reranker, which reads each question and chunk together in any language pair,
+  decide the order (D-023).
+- **Validation:** 42 tests (9 for the fusion function; database tests for hybrid search,
+  `retrieve`, and access control in all three modes with one planted document per level; a
+  hand-built embedder whose vector ranking deliberately disagrees with word overlap, since the
+  hashing embedder is lexical and makes the two searches agree). 18 deliberate breakages. The
+  first run missed 6 of the 16 in the fusion module, all weak tests: a tie test whose chunk ids
+  sorted the same way by position and by id; a "keyword-only" test in which nothing was
+  keyword-only (each search looks `max(k, candidates)` deep, which covered the whole 3-chunk
+  test corpus); and fusion-order, keyword-list and default-mode tests that could not tell
+  hybrid from vector with a lexical embedder. All 6 are caught after the hand-built embedder
+  was added.
+- **Status:** Accepted, with vector search as the default.
