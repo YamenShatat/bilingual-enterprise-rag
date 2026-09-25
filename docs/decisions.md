@@ -1164,3 +1164,33 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   to load (measured 31.5 to 39 s, D-020 and D-023).
 - **Status:** Accepted. Closes Week 7: Streamlit UI, JWT authentication, Admin and Employee roles,
   document access control.
+
+## D-026: GitHub Actions CI runs lint and the fast suite against a real database
+
+- **Decision:** `.github/workflows/ci.yml` runs on every push to `main` and every pull request.
+  One job on `ubuntu-latest` with Python 3.14: `ruff check`, `ruff format --check`, then the fast
+  pytest suite against a `pgvector/pgvector:0.8.6-pg17` service container, the image
+  `docker-compose.yml` uses. Settings come from environment variables only; there is no `.env`
+  in CI (D-011).
+- **Database tests cannot pass by skipping:** the job sets `RAG_REQUIRE_DATABASE=1` (D-011), so
+  an unreachable database fails them. Checked: with the database pointed at a closed port, the 11
+  tests of `test_database_connection.py` are skipped without the flag and error with it.
+- **No model downloads:** `HF_HUB_OFFLINE=1`, so a fast test that tries to fetch a model fails
+  instead of downloading gigabytes. The `slow` tests (bge-m3, the reranker, qwen3:8b through
+  Ollama) are not run in CI: they need a GPU and gigabytes of weights. Run them locally with
+  `pytest --slow`.
+- **CPU-only torch:** two fast unit tests import modules that import torch at the top
+  (`embeddings.sentence_transformer`, `retrieval.cross_encoder`). The job installs PyTorch's
+  CPU wheel from PyTorch's own index (196 MB) before the extras. From PyPI, pip would install the
+  CUDA build and several GB of NVIDIA libraries the suite never uses.
+- **Hardening:** actions pinned by commit SHA (a tag can be moved to other code), a read-only
+  `GITHUB_TOKEN`, Git credentials not kept after checkout. The database password is a fixed value
+  for a container that only exists during the job, not a secret.
+- **Checked for real:** the first run (PR #23) passed on Linux with the same result as on
+  Windows, **1375 passed, 37 skipped (all `slow`), 1 xfailed**. It took 2 min 27 s: installing 77 s,
+  tests 42 s. Before pushing, the same suite passed in a clean local worktree with no `.env` and
+  `HF_HUB_OFFLINE=1`.
+- **Limits:** one Python version (3.14, the one developed on; `requires-python` allows 3.12). The
+  `slow` tests and the measured evaluations run only on the developer's machine. No branch
+  protection yet: a failing run does not block merging until the repository settings require it.
+- **Status:** Accepted. Week 8, step 1.
