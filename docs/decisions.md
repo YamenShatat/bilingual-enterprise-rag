@@ -1048,3 +1048,72 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   checked to pass the reranker on to each question), caught after a test was added.
 - **Status:** Accepted. Closes Week 6: hybrid search built and measured (not used: D-022), and a
   reranker that measurably improves retrieval and, after two fixes, answers.
+
+## D-024: Users, scrypt passwords and JWT login; permissions read from the database per request
+
+- **Decision:** migration 0004 adds a `users` table (username, scrypt password hash, role,
+  access levels, active flag). `bilingual_rag/auth/` provides password hashing, JWT issuing and
+  checking, and `create_user` / `authenticate` / `get_user`. The API gains `POST /auth/token`
+  (OAuth2 password form) and `GET /auth/me`; every endpoint except `/health` and `/auth/token`
+  needs a bearer token. **This replaces D-020's interim stand-ins**: `API_ACCESS_LEVELS` and
+  `ADMIN_API_KEY` are gone; the API now needs `JWT_SECRET` (at least 32 characters) and
+  optionally `TOKEN_TTL_MINUTES` (default 60). Users are created with
+  `scripts/create_user.py`; there is no self-registration.
+- **Roles (the user's decision):** an **admin** reads every access level and may upload; an
+  **employee** reads the levels chosen for them (default public and employee; for example an HR
+  employee also gets hr). Admins are always created with every level, so a user's access levels
+  are the whole of their document permission, and the role decides only who may upload.
+- **Dependencies (asked for and approved):** `pyjwt` (MIT, 33 KB) in the `api` extra. Password
+  hashing needs no dependency: the standard library's `hashlib.scrypt`.
+- **Why the token carries no permissions:** it names the user (`sub`) and expires (`iat`,
+  `exp`), nothing else. The API reads the user's role, levels and active flag from the database
+  on **every** request, so a changed permission, a deactivated user or a deleted user takes
+  effect on the next request, not when the token expires (tested: all three). The cost is one
+  indexed lookup per request.
+- **Why these password and token settings:**
+  - scrypt with OWASP's recommended parameters (N=2^17, r=8, p=1): measured 0.36 s and about
+    128 MiB per hash, which is what makes a stolen hash expensive to brute-force. Parameters are
+    stored in each hash, so they can be raised later. Minimum password length 12.
+  - JWTs are HS256 and **only HS256 is accepted when decoding**: tests send an unsigned
+    `alg: none` token, an HS512 token, a token with a forged payload, tokens missing each required
+    claim and an expired token; all are refused.
+  - A wrong password and an unknown username get the same response, and an unknown username
+    still runs one scrypt check, so neither the message nor the timing reveals which usernames
+    exist (tested by counting the verification calls).
+- **Two real bugs, both caught before they shipped:**
+  - `create_user` first used psycopg's `conn.transaction()` to keep the connection usable after
+    a duplicate username. In psycopg 3 that block **commits** when no transaction is already
+    open, so the function silently committed its caller's transaction (breaking the "nothing
+    here commits" rule of the repository layer). A test's rollback failed to undo a user, which
+    exposed it. Fixed by checking the username format and uniqueness first, with the database
+    constraints kept as the final guard; a new test checks from a second connection that nothing
+    is visible before the caller commits.
+  - `create_user.py --password-stdin`, run with a password piped from PowerShell 5.1, stored the
+    password with an invisible byte-order mark (U+FEFF) in front, so the real password never
+    matched. Found in the HTTP check below when a correct login failed, confirmed by testing the
+    saved password with and without the mark. The script now strips a leading BOM; tests pipe
+    text with and without one.
+- **Checked for real, over HTTP** (bge-m3, the reranker and qwen3; a random `JWT_SECRET` added to
+  the local `.env`, never printed; two throwaway users created with the script, deleted
+  afterwards): no token, 401; a wrong password and an unknown user, the same 401 message; an HR
+  employee sees 28 of the 32 documents (no engineering or management ones) and gets "60,000 USD
+  [1]" for the grade G4 salary from the HR compensation bands (the question D-020 had to refuse,
+  when every caller shared one public identity); an admin sees all 32; an employee's upload, 403;
+  a tampered token, 401. The server log held no passwords or tokens.
+- **Validation:** 97 new tests, net (Week 5's admin-key tests were replaced by role tests):
+  passwords and tokens (pure), users against a real database, the create-user script, and the
+  API with a real user per access level plus an admin in every test (the login, missing, bad,
+  expired, foreign-secret and stale tokens, per-level access, the admin-only upload, and
+  permission changes taking effect at once). 49 deliberate breakages across five files: 4 missed on
+  the first run. Three were real gaps, each fixed with a test: comparing only the first bytes of a
+  password hash (a tampered last byte now must fail), skipping the scheme check (a well-formed
+  hash of another scheme now must be refused), and weakening the signing secret's minimum length
+  (tests had used the constant; a literal 31-character secret is now refused). One was
+  equivalent (an explicit missing-token check that `read_token` already covers) and the redundant
+  check was removed. Tests hash with a lower scrypt cost for speed (each hash records its own
+  cost); one marked test checks the production parameters.
+- **Limits, stated openly:** no rate limiting or lockout on `/auth/token` (scrypt's cost slows
+  guessing but does not stop it; a reverse proxy or a lockout table is the upgrade); no token
+  revocation list (deactivating the user is the revocation); no password reset or user
+  management endpoint (the script only creates users; changing one is SQL for now).
+- **Status:** Accepted.

@@ -57,7 +57,8 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Grounded answers with citations, or a refusal the system (not the model) enforces at four gates; measured on the 50 questions, including a prompt-injection comparison (see [`docs/decisions.md`](docs/decisions.md) D-019 — **Week 4's goal**)
 - [x] FastAPI backend: `POST /query`, `GET /documents`, `POST /documents` (admin key), `GET /health`; access levels come from the server, never the request (see [`docs/decisions.md`](docs/decisions.md) D-020 — **Week 5's goal**)
 - [x] Keyword search (PostgreSQL full-text, Arabic and English stemmers), hybrid fusion (measured: hurts cross-lingual retrieval, so not used), and a multilingual cross-encoder reranker used by default (see [`docs/decisions.md`](docs/decisions.md) D-021 to D-023 — **Week 6's goal**)
-- [ ] UI, authentication and permissions
+- [x] Authentication and permissions: users with scrypt-hashed passwords, JWT login, Admin and Employee roles, per-user access levels read from the database on every request (see [`docs/decisions.md`](docs/decisions.md) D-024)
+- [ ] Streamlit UI
 - [ ] Docker and CI/CD
 
 ## Benchmark results
@@ -257,26 +258,37 @@ uvicorn bilingual_rag.api.app:create_app --factory --port 8000
 
 The API loads bge-m3 (16-bit on the GPU), the bge-reranker-v2-m3 reranker (about 2.3 GB, downloaded
 on first start) and talks to qwen3:8b in Ollama; together they fit in 8 GB of GPU memory (D-023).
-Interactive documentation is served at `http://127.0.0.1:8000/docs`. Two settings in `.env`
-(see `.env.example`) control what callers may do until real users arrive in Week 7:
+Interactive documentation is served at `http://127.0.0.1:8000/docs`.
 
-- `API_ACCESS_LEVELS` (default `public`): the access levels every caller gets. A request cannot
-  send its own; an unknown field such as `access_levels` is rejected with 422.
-- `ADMIN_API_KEY` (at least 16 characters): required as the `X-Admin-Key` header to upload.
-  Leave it empty and uploads are disabled.
+Every endpoint except `/health` needs a login (D-024). Before the first start, put a random
+signing secret in `.env` as `JWT_SECRET=...` (at least 32 characters; generate one with
+`python -c "import secrets; print(secrets.token_urlsafe(48))"`), then create users. There is no
+self-registration, and the script asks for the password twice without echoing it:
 
 ```powershell
-# ask (PowerShell 5.1: pass UTF-8 bytes so Arabic survives)
-$body = [Text.Encoding]::UTF8.GetBytes('{"question": "How many days of annual leave do I get?"}')
-Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/query -ContentType "application/json" -Body $body
-
-# list the documents you may read
-Invoke-RestMethod http://127.0.0.1:8000/documents
+python scripts/create_user.py --username admin --role admin
+python scripts/create_user.py --username sara --role employee --levels public,employee,hr
 ```
 
-Uploads take a multipart form with the file (md, txt, docx or pdf, up to 10 MB) and the
-metadata fields `id`, `title`, `department`, `language`, `access_level`, `topic` and, for
-Arabic, `digits`. The client's filename is never stored; the document is chunked, stored and
+An admin reads every access level and may upload; an employee reads only their own levels
+(default `public,employee`). Levels are read from the database on every request, so a change
+applies at once. Log in, then send the token with each request:
+
+```powershell
+$login = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/auth/token -Body @{ username = "sara"; password = "<her password>" }
+$auth = @{ Authorization = "Bearer $($login.access_token)" }
+
+# ask (PowerShell 5.1: pass UTF-8 bytes so Arabic survives)
+$body = [Text.Encoding]::UTF8.GetBytes('{"question": "How many days of annual leave do I get?"}')
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/query -Headers $auth -ContentType "application/json" -Body $body
+
+# list the documents you may read
+Invoke-RestMethod http://127.0.0.1:8000/documents -Headers $auth
+```
+
+Uploads (admins only) take a multipart form with the file (md, txt, docx or pdf, up to 10 MB)
+and the metadata fields `id`, `title`, `department`, `language`, `access_level`, `topic` and,
+for Arabic, `digits`. The client's filename is never stored; the document is chunked, stored and
 embedded at once, and an existing id is refused (409).
 
 ## License
