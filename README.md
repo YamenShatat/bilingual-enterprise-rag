@@ -45,7 +45,8 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] DOCX loader (exact Arabic text; page numbers are approximate, see [`docs/decisions.md`](docs/decisions.md) D-009)
 - [x] Synthetic corpus: 32 bilingual documents in four formats with a manifest (see [`docs/dataset.md`](docs/dataset.md))
 - [x] PostgreSQL + pgvector in Docker (database only), settings from environment variables, health check (see [`docs/decisions.md`](docs/decisions.md) D-011)
-- [ ] Database schema, embeddings and vector search
+- [x] Database schema: versioned migrations, documents and chunks with manifest metadata, one embedding table per model, access-level-filtered reads (see [`docs/decisions.md`](docs/decisions.md) D-012)
+- [ ] Embedding model, ingestion script and vector search
 - [ ] Retrieval evaluation
 - [ ] RAG with citations
 - [ ] FastAPI backend
@@ -88,14 +89,19 @@ proprietary software, so check that its license terms cover your use; any Docker
 Copy-Item .env.example .env        # then edit POSTGRES_PASSWORD (letters and digits only)
 docker compose up -d --wait db     # starts pgvector/pgvector:0.8.6-pg17 on 127.0.0.1:5432
 python scripts/check_database.py   # connects, checks UTF-8, runs a pgvector distance query
+python scripts/migrate_database.py # creates or updates the tables; safe to run repeatedly
 ```
+
+The schema lives in versioned SQL files under `src/bilingual_rag/database/migrations/`. Never
+edit a migration that has been applied (the runner refuses); add a new numbered file instead.
 
 `.env` is ignored by Git. PostgreSQL reads the password only when it first creates the data
 volume, so editing it afterwards has no effect on an existing database. To start over with a new
 password run `docker compose down -v`, which **deletes the data**.
 
 Tests that need the database are skipped when it is not running, with the reason shown
-(`pytest -rs`). Set `RAG_REQUIRE_DATABASE=1` to make them fail instead, as CI should.
+(`pytest -rs`). Set `RAG_REQUIRE_DATABASE=1` to make them fail instead, as CI should. They
+create and drop their own `rag_test_*` databases, so your development data is never touched.
 
 ## License
 

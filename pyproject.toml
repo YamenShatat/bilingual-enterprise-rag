@@ -29,6 +29,10 @@ dev = [
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+# The SQL migrations ship inside the package so an installed copy can still migrate.
+"bilingual_rag.database" = ["migrations/*.sql"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 # Lets tests import shared helpers as `from support.arabic import ...`.

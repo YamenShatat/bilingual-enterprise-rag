@@ -11,11 +11,14 @@ def connect(
     settings: DatabaseSettings,
     *,
     connect_timeout: int = DEFAULT_CONNECT_TIMEOUT,
+    autocommit: bool = False,
 ) -> psycopg.Connection:
     """Open a connection whose client encoding is always UTF-8.
 
     The encoding is set explicitly so Arabic text never depends on the Windows locale.
-    Transactions are the psycopg default: nothing is saved until ``commit()``.
+    Unless ``autocommit`` is set, transactions are the psycopg default: nothing is saved
+    until ``commit()``. Autocommit exists for statements PostgreSQL refuses to run inside a
+    transaction, such as ``CREATE DATABASE``.
 
     Raises:
         psycopg.OperationalError: the server is unreachable or rejects the credentials.
@@ -24,4 +27,5 @@ def connect(
         **settings.connect_kwargs(),
         client_encoding="UTF8",
         connect_timeout=connect_timeout,
+        autocommit=autocommit,
     )

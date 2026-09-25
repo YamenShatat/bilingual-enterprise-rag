@@ -208,3 +208,73 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
 - **Not decided yet:** the schema, migrations, embedding storage and any vector index. With
   46 chunks an exact scan is enough, and no index will be added until the corpus justifies it.
 - **Status:** Accepted.
+
+## D-012: Versioned SQL migrations, a schema that enforces the data model, one embedding table per model
+
+- **Decision:**
+  - **Migrations** are plain `NNNN_name.sql` files shipped inside the package
+    (`bilingual_rag/database/migrations/`) and applied by a small runner
+    (`database/migrate.py`, `scripts/migrate_database.py`). The runner is forward-only, runs each
+    file in its own transaction together with the row that records it, stores a checksum of every
+    applied file (editing an applied migration is an error), and takes an advisory lock so two
+    runners take turns.
+  - **Tables:** `documents` carries the manifest metadata plus a content hash; `chunks` carries
+    page, index, text and character offsets, and is keyed by a readable id,
+    `<document id>-p<page>-c<index>`. The database itself enforces the rules of the data model:
+    the allowed languages, formats and access levels, the derived chunk id, and
+    `end_offset - start_offset = char_length(text)` (the chunk text is exactly a slice of its
+    page). `ON DELETE CASCADE` removes a document's chunks and embeddings with it.
+  - **Embeddings:** an `embedding_models` registry plus one table per model,
+    `embeddings_<key>`, created by code (`database/embedding_store.py`). No vector index exists.
+  - **Access:** repository functions never commit, and chunk text can only be read through
+    `list_chunks`, whose `allowed_access_levels` argument is required, has no default, and returns
+    nothing when empty. The filter is part of the SQL statement.
+  - **Vectors** cross the driver as text and are cast in SQL (`%s::vector`).
+- **Alternatives:** Alembic; an ORM; one embeddings table with a dimensionless vector column and a
+  model column; serial integer chunk ids; the `pgvector` Python adapter.
+- **Why:**
+  - *Plain SQL and a 140-line runner* instead of Alembic: two tables need no migration DSL, the
+    SQL is reviewable as written, and it adds no dependency. Alembic remains the answer if the
+    schema grows branches or needs autogeneration.
+  - *Constraints in the database*, because access level is what the search filters on: a typo such
+    as `Employee` must fail at the write and not silently hide or expose a document. A test keeps
+    the SQL value sets and the Python constants in step.
+  - *A readable natural chunk id* so evaluation data (Week 3) and citations can name a chunk and
+    still find it after re-ingestion, which a serial id would not survive.
+  - *One table per model*, because a pgvector column has a fixed dimension and Week 3 compares
+    models with different ones. The registry refuses to reuse a key for another model or
+    dimension.
+  - *Idempotent ingestion* through a hash of the document's chunks: an unchanged document writes
+    nothing, changed text replaces the chunks (and drops their now-stale embeddings through the
+    cascade), and a metadata-only change, such as a new access level, takes effect at once without
+    touching the chunks.
+  - *Required access levels, deny by default:* a caller cannot fetch text by forgetting a filter,
+    an empty list yields nothing, and a bare string (which would be read as letters) is refused.
+  - *Text vectors and not the adapter (a change from the default agreed earlier):* the `pgvector`
+    package is small, MIT licensed and has no required dependencies, but registering it fails on a
+    connection opened before the extension exists, which couples connection setup to migration
+    order. A short helper with strict validation is enough for writing vectors; distances are
+    computed in SQL. Revisit when a query needs to read vectors as arrays.
+- **Limits, stated openly:**
+  - One chunking configuration is stored at a time, and chunk ids do not include it. Week 3's
+    chunk-size experiments must re-ingest into a separate database or replace the chunks.
+  - Embedding tables are created by application code, which needs a role allowed to run
+    `CREATE TABLE`. Revisit if the application is given a narrower role.
+  - The access levels are listed in both SQL and Python. Adding one needs a new migration and a
+    change to `ACCESS_LEVELS`; the sync test fails until both agree.
+  - There are no down-migrations, and a migration cannot use statements PostgreSQL refuses inside
+    a transaction (such as `CREATE INDEX CONCURRENTLY`).
+  - Tests create throwaway `rag_test_*` databases; a hard-killed test run can leave one behind.
+- **Validation:** the suite passes with the database (710 tests, 1 expected failure) and, on a machine without
+  Docker, passes with 201 database tests skipped. The migrations were applied twice to the
+  development database (PostgreSQL 17.11); the second run applied nothing. The real 32-document
+  corpus was stored and read back exactly, Arabic included, and every access-level filter returned
+  precisely the documents an independent count from the manifest predicts. Forty-two deliberate
+  breakages (10 in the migration runner, 11 in the repository, 6 in the embedding store, 1 in the
+  vector helper, 4 in the manifest loader and 10 in the schema SQL) were each caught by a test.
+  That run found one real gap, now closed: nothing rejected a zero-length chunk with consistent
+  offsets. Two of my own tests had wrong expectations (a tied and a mis-calculated vector
+  ordering) that the first real run exposed.
+- **Not decided yet:** the embedding model wrapper, the ingestion script, and the vector search
+  query. No ANN index will be added until the corpus justifies one.
+- **Status:** Accepted.
