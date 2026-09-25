@@ -488,3 +488,87 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   relevant chunks, with document permissions enforced in SQL and no LLM involved.
 - **Not decided yet:** Week 3's retrieval evaluation (about 50 questions, Recall@k, MRR,
   comparing embedding models and chunk sizes) is the next milestone.
+
+## D-016: The Week 3 retrieval evaluation -- 50 questions, Recall@k, MRR, two models, two chunkings
+
+- **Decision:** `data/evaluation_questions.json` holds 50 fixed questions (25 EN, 25 AR),
+  each checked against the actual document text before being written down, not assumed:
+  26 `same_language` (the correct answer is in the same language as the question), 12
+  `cross_lingual` (the correct answer exists only in the *other* language, from the corpus's
+  seven English-only and five Arabic-only topics), 8 `near_miss` (a number that also appears,
+  for a different fact, elsewhere in the corpus, for example the USD 10,000 figure that
+  appears in both the procurement policy and the contract-approval procedure for different
+  processes), and 4 `absent_fact` (deliberately unanswerable, `expected_document_id: null`).
+  `bilingual_rag/evaluation/` provides `load_questions`, `document_rank`/`recall_at_k`/
+  `mean_reciprocal_rank` (pure functions), and `run_questions`/`summarize`, which call the
+  real `search()` from D-015 and rank results at document granularity (a question is
+  answered by a document, not a specific chunk; results are de-duplicated by document before
+  ranking, fetching `CHUNK_FETCH_K = 20` chunks so a document with several top-scoring chunks
+  cannot crowd out others before Recall@5 is measured). `scripts/evaluate_retrieval.py` runs
+  one embedder at one chunking per invocation and prints the summary; comparing models or
+  chunk sizes means running it more than once, on purpose (no speculative multi-run
+  orchestration was built for a corpus this size). Added `e5_large()` next to `bge_m3()` in
+  `embeddings/sentence_transformer.py`, and a small `embeddings/registry.py` shared by
+  `ingest_documents.py` and `evaluate_retrieval.py` so the embedder-selection logic is
+  written once.
+- **Measured, bge-m3 vs multilingual-e5-large, both at the 1200/200 default chunking:**
+
+  | | bge-m3 | multilingual-e5-large |
+  | --- | --- | --- |
+  | Overall Recall@1 / @3 / @5 | 0.826 / 1.000 / 1.000 | 0.804 / 0.891 / 0.913 |
+  | Overall MRR | 0.913 | 0.863 |
+  | `cross_lingual` Recall@1 / MRR | **0.917 / 0.958** | **0.333 / 0.517** |
+  | `same_language` Recall@1 / MRR | 0.808 / 0.904 | **1.000 / 1.000** |
+  | `near_miss` Recall@1 / MRR | 0.750 / 0.875 | 0.875 / 0.938 |
+  | `absent_fact` mean top score | 0.531 | 0.797 |
+
+  **The standout, and the reason bge-m3 was already the first choice in D-014:**
+  multilingual-e5-large is perfect within one language on this corpus, but its cross-lingual
+  Recall@1 (0.333) is less than half of bge-m3's, on the exact retrieval direction the corpus
+  was built to test (D-010). bge-m3 also separates answerable from unanswerable questions by
+  score more clearly (0.53 against 0.80 for the four absent-fact questions), which matters
+  once a refusal threshold is built in Week 4.
+  `paraphrase-multilingual-mpnet-base-v2` was not run: D-006's addendum already showed it
+  truncates 78% of this corpus's chunks, so a low score there would measure truncation, not
+  the model.
+- **Measured, chunk size, bge-m3 only (1200/200 vs 600/100; 46 vs 77 chunks):**
+
+  | | 1200/200 | 600/100 |
+  | --- | --- | --- |
+  | Overall Recall@1 / MRR | 0.826 / 0.913 | 0.826 / 0.908 |
+  | `language:ar` Recall@1 | 0.826 | **0.696** |
+  | `language:en` Recall@1 | 0.826 | **0.957** |
+
+  Overall the two chunkings are close, but the smaller chunking helps English and hurts
+  Arabic. This lines up with the D-006 addendum's measurement that Arabic runs token-heavier
+  than English for the same character budget: a fixed character-based chunk size is not a
+  language-neutral choice, and the corpus is too small yet to say more than that a
+  language-aware or token-based chunk size is worth testing properly, not just noting.
+- **The corpus was restored to 1200/200 with both models fully embedded (46/46/46) after
+  these runs**, so the development database is left in the state `scripts/ingest_documents.py`
+  produces normally, not mid-experiment.
+- **Limits, stated openly:**
+  - 50 questions over 32 documents (46 chunks) is small. The category and language splits
+    above are 4-26 questions each; a single wrong answer moves a category's Recall@1 by
+    0.125-0.25. These are directional findings, not precise measurements.
+  - The questions and their ground truth were written by one person (with AI assistance) in
+    one sitting, and the Arabic questions carry the same caveat as the corpus itself (D-010):
+    not reviewed by a native-speaker editor.
+  - Only two of the three originally proposed models were compared, for the stated reason
+    above; `paraphrase-multilingual-mpnet-base-v2` could still be run for completeness later.
+  - No reranking, no hybrid search, no LLM. Only the vector search from D-015 is measured.
+  - `absent_fact` mean top score is four questions; it is a directional signal for a future
+    refusal threshold, not a calibrated one.
+- **Validation:** 41 new tests (35 fast: metrics edge cases, question-set validation against
+  the real 50-question file, the wrapper's `e5_large()` factory; 6 database-backed, using the
+  hashing stand-in for speed). Fifteen deliberate breakages of the metrics, validation and
+  ranking logic were each caught, after two rounds where my own mutation-harness expected
+  strings, not the code, were wrong -- confirmed each time by reproducing the failure
+  directly rather than trusting the harness's first verdict, the same discipline as D-013 and
+  D-014. One test itself had a real gap the harness correctly found: a first version used
+  only one document, so a missing de-duplication guard had no document ranking to disturb;
+  the fixed version plants two documents so the guard's absence changes a real rank.
+- **Status:** Accepted. `paraphrase-multilingual-mpnet-base-v2` and a token-based or
+  language-aware chunk size are candidates for a follow-up run, not required for V1.
+- **Not decided yet:** hybrid search (Week 6), reranking (Week 6), the LLM and citations
+  (Week 4), and whether/how the absent-fact score gap becomes a real refusal threshold.

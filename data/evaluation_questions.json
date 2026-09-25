@@ -1,0 +1,61 @@
+{
+  "note": "50 questions (25 EN, 25 AR) for the Week 3 retrieval evaluation. Every expected_document_id was checked against the actual document text, not assumed. Categories: same_language (question and its only correct answer share a language), cross_lingual (the only correct answer exists in the other language: an AR-only or EN-only topic), near_miss (a number that also appears, for a different fact, elsewhere in the corpus), absent_fact (deliberately unanswerable; expected_document_id is null and no chunk should score highly).",
+  "questions": [
+    {"id": "q001", "language": "en", "category": "same_language", "question": "How many working days of paid annual leave do full-time employees get after probation?", "expected_document_id": "hr-annual-leave-policy-en"},
+    {"id": "q002", "language": "en", "category": "same_language", "question": "How many calendar days of maternity leave are employees entitled to?", "expected_document_id": "hr-employee-benefits-guide-en"},
+    {"id": "q003", "language": "en", "category": "same_language", "question": "How many days do new employees have to complete mandatory training?", "expected_document_id": "hr-onboarding-guide-en"},
+    {"id": "q004", "language": "en", "category": "same_language", "question": "What is the maximum value of a gift an employee may accept without declaring it to Compliance?", "expected_document_id": "legal-code-of-conduct-en"},
+    {"id": "q005", "language": "en", "category": "same_language", "question": "How many devices can an employee use the VPN on at the same time?", "expected_document_id": "it-vpn-troubleshooting-guide-en"},
+    {"id": "q006", "language": "en", "category": "same_language", "question": "What is the response time target for a P1 critical security incident?", "expected_document_id": "security-incident-response-policy-en"},
+    {"id": "q007", "language": "en", "category": "same_language", "question": "What is the hotel limit per night for international travel?", "expected_document_id": "finance-travel-expense-policy-en"},
+    {"id": "q008", "language": "en", "category": "same_language", "question": "How many years are financial records kept under the data retention policy?", "expected_document_id": "legal-data-retention-policy-en"},
+    {"id": "q009", "language": "en", "category": "same_language", "question": "What purchase value requires the Finance Director's approval?", "expected_document_id": "operations-procurement-policy-en"},
+    {"id": "q010", "language": "en", "category": "same_language", "question": "What are the standard office hours at Acme MENA Technology?", "expected_document_id": "general-employee-handbook-en"},
+    {"id": "q011", "language": "en", "category": "same_language", "question": "How many days per week may an eligible employee work remotely?", "expected_document_id": "hr-remote-work-policy-en"},
+    {"id": "q012", "language": "en", "category": "same_language", "question": "How often are company laptops replaced?", "expected_document_id": "it-laptop-setup-guide-en"},
+    {"id": "q013", "language": "en", "category": "same_language", "question": "What is the maximum annual base salary for grade G4?", "expected_document_id": "hr-compensation-bands-en"},
+
+    {"id": "q014", "language": "ar", "category": "same_language", "question": "كم عدد أيام الإجازة السنوية المدفوعة التي يستحقها الموظف بدوام كامل بعد انتهاء فترة التجربة؟", "expected_document_id": "hr-annual-leave-policy-ar"},
+    {"id": "q015", "language": "ar", "category": "same_language", "question": "كم عدد الأيام التقويمية لإجازة الأمومة المدفوعة بأجر كامل؟", "expected_document_id": "hr-employee-benefits-guide-ar"},
+    {"id": "q016", "language": "ar", "category": "same_language", "question": "خلال كم يوم يجب على الموظف الجديد إكمال التدريب الإلزامي؟", "expected_document_id": "hr-onboarding-guide-ar"},
+    {"id": "q017", "language": "ar", "category": "same_language", "question": "ما القيمة القصوى للهدية التي يجوز للموظف قبولها دون الإفصاح عنها لمسؤول الامتثال؟", "expected_document_id": "legal-code-of-conduct-ar"},
+    {"id": "q018", "language": "ar", "category": "same_language", "question": "كم عدد الأجهزة التي يجوز للموظف استخدام VPN عليها في الوقت نفسه؟", "expected_document_id": "it-vpn-troubleshooting-guide-ar"},
+    {"id": "q019", "language": "ar", "category": "same_language", "question": "ما هو زمن الاستجابة المستهدف لحادث أمني من مستوى P1 حرج؟", "expected_document_id": "security-incident-response-policy-ar"},
+    {"id": "q020", "language": "ar", "category": "same_language", "question": "ما الحد الأقصى لتكلفة الفندق لليلة الواحدة في السفر الدولي؟", "expected_document_id": "finance-travel-expense-policy-ar"},
+    {"id": "q021", "language": "ar", "category": "same_language", "question": "كم سنة تُحفظ السجلات المالية بموجب سياسة الاحتفاظ بالبيانات؟", "expected_document_id": "legal-data-retention-policy-ar"},
+    {"id": "q022", "language": "ar", "category": "same_language", "question": "ما قيمة الشراء التي تتطلب موافقة المدير المالي؟", "expected_document_id": "operations-procurement-policy-ar"},
+    {"id": "q023", "language": "ar", "category": "same_language", "question": "ما هي ساعات الدوام الرسمي في شركة أكمي مينا للتكنولوجيا؟", "expected_document_id": "general-employee-handbook-ar"},
+    {"id": "q024", "language": "ar", "category": "same_language", "question": "ما هو الحد الأدنى لطول كلمة المرور المطلوب؟", "expected_document_id": "security-password-policy-ar"},
+    {"id": "q025", "language": "ar", "category": "same_language", "question": "كم ساعة تُخفَّض ساعات العمل اليومية خلال شهر رمضان؟", "expected_document_id": "hr-working-hours-and-overtime-ar"},
+    {"id": "q026", "language": "ar", "category": "same_language", "question": "ما الحد الأقصى للصرف من الصندوق النثري في عملية واحدة؟", "expected_document_id": "finance-petty-cash-policy-ar"},
+
+    {"id": "q027", "language": "en", "category": "cross_lingual", "question": "What is the minimum required password length?", "expected_document_id": "security-password-policy-ar", "notes": "AR-only topic: the only correct answer exists in Arabic"},
+    {"id": "q028", "language": "en", "category": "cross_lingual", "question": "By how many hours are daily working hours reduced during Ramadan?", "expected_document_id": "hr-working-hours-and-overtime-ar", "notes": "AR-only topic"},
+    {"id": "q029", "language": "en", "category": "cross_lingual", "question": "What is the overtime pay rate for work on official holidays?", "expected_document_id": "hr-working-hours-and-overtime-ar", "notes": "AR-only topic"},
+    {"id": "q030", "language": "en", "category": "cross_lingual", "question": "What is the maximum amount that can be spent in a single petty cash transaction?", "expected_document_id": "finance-petty-cash-policy-ar", "notes": "AR-only topic"},
+    {"id": "q031", "language": "en", "category": "cross_lingual", "question": "Who must approve a contract worth more than USD 100,000?", "expected_document_id": "legal-contract-approval-procedure-ar", "notes": "AR-only topic"},
+    {"id": "q032", "language": "en", "category": "cross_lingual", "question": "What is the target recovery time for critical systems in the business continuity plan?", "expected_document_id": "operations-business-continuity-plan-ar", "notes": "AR-only topic"},
+
+    {"id": "q033", "language": "ar", "category": "cross_lingual", "question": "كم يومًا في الأسبوع يجوز للموظف المؤهل العمل عن بُعد؟", "expected_document_id": "hr-remote-work-policy-en", "notes": "EN-only topic: the only correct answer exists in English"},
+    {"id": "q034", "language": "ar", "category": "cross_lingual", "question": "كل كم شهر يتم استبدال أجهزة الكمبيوتر المحمولة؟", "expected_document_id": "it-laptop-setup-guide-en", "notes": "EN-only topic"},
+    {"id": "q035", "language": "ar", "category": "cross_lingual", "question": "ما الحد الأقصى للراتب الأساسي السنوي للدرجة الوظيفية G4؟", "expected_document_id": "hr-compensation-bands-en", "notes": "EN-only topic"},
+    {"id": "q036", "language": "ar", "category": "cross_lingual", "question": "كم عدد الموافقات المطلوبة قبل دمج طلب سحب التعليمات البرمجية؟", "expected_document_id": "engineering-code-review-guidelines-en", "notes": "EN-only topic"},
+    {"id": "q037", "language": "ar", "category": "cross_lingual", "question": "كل كم أسبوع تصدر الشركة نسخة إنتاجية جديدة؟", "expected_document_id": "engineering-release-process-en", "notes": "EN-only topic"},
+    {"id": "q038", "language": "ar", "category": "cross_lingual", "question": "من الساعة كم إلى الساعة كم تفتح بطاقات الموظفين أبواب المكتب؟", "expected_document_id": "operations-facilities-access-policy-en", "notes": "EN-only topic"},
+
+    {"id": "q039", "language": "en", "category": "near_miss", "question": "What is the maximum amount a budget owner can move between budget lines without approval?", "expected_document_id": "finance-budget-review-procedure-en", "notes": "USD 25,000 -- close to the USD 10,000 procurement and contract-approval thresholds"},
+    {"id": "q040", "language": "en", "category": "near_miss", "question": "What purchase value range requires department head approval rather than the Finance Director?", "expected_document_id": "operations-procurement-policy-en", "notes": "USD 1,000-10,000 -- the contract-approval procedure uses the same USD 10,000 figure for a different process"},
+    {"id": "q041", "language": "en", "category": "near_miss", "question": "What is the maximum value of a gift an employee can accept without declaring it?", "expected_document_id": "legal-code-of-conduct-en", "notes": "USD 50 -- the same figure as the Arabic petty cash single-transaction limit, different topic and language"},
+    {"id": "q042", "language": "en", "category": "near_miss", "question": "Within how many hours must a lost company badge be reported?", "expected_document_id": "operations-facilities-access-policy-en", "notes": "2 hours -- distinct from the 1-hour lost-laptop and 15-minute P1-incident deadlines"},
+
+    {"id": "q043", "language": "ar", "category": "near_miss", "question": "ما الحد الأقصى لقيمة العقد الذي يعتمده رئيس القسم دون تصعيد؟", "expected_document_id": "legal-contract-approval-procedure-ar", "notes": "up to USD 10,000 -- same figure as procurement's department-head threshold, different process"},
+    {"id": "q044", "language": "ar", "category": "near_miss", "question": "خلال كم ساعة يجب الإبلاغ عن فقدان أو سرقة جهاز كمبيوتر محمول؟", "expected_document_id": "it-laptop-setup-guide-en", "notes": "cross-lingual and near-miss: 1 hour, distinct from the 2-hour lost-badge deadline"},
+    {"id": "q045", "language": "ar", "category": "near_miss", "question": "ما نسبة أجر العمل الإضافي في أيام الراحة الأسبوعية؟", "expected_document_id": "hr-working-hours-and-overtime-ar", "notes": "150% -- distinct from 125% on regular days and 200% on public holidays in the same table"},
+    {"id": "q046", "language": "ar", "category": "near_miss", "question": "كم عدد الأيام غير المستخدمة التي يجوز للموظف ترحيلها إلى السنة التالية من رصيد الإجازة السنوية؟", "expected_document_id": "hr-annual-leave-policy-ar", "notes": "5 days carry-over -- distinct from the 21/26-day entitlements and the 10-day sick leave figure in a different document"},
+
+    {"id": "q047", "language": "en", "category": "absent_fact", "question": "What stock options are granted to executives?", "expected_document_id": null},
+    {"id": "q048", "language": "en", "category": "absent_fact", "question": "What relocation allowance do new employees receive?", "expected_document_id": null},
+    {"id": "q049", "language": "ar", "category": "absent_fact", "question": "ما هو راتب الرئيس التنفيذي للشركة؟", "expected_document_id": null},
+    {"id": "q050", "language": "ar", "category": "absent_fact", "question": "ما هي مزايا التقاعد التي يحصل عليها الموظفون؟", "expected_document_id": null}
+  ]
+}

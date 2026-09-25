@@ -4,7 +4,7 @@ A bilingual (Arabic / English) knowledge assistant for enterprise documents, bui
 hybrid retrieval, reranking, grounded answers with citations, document-level access control and a
 measured evaluation, served through a FastAPI backend.
 
-> **Status: early development (Week 2 of 8 complete — PostgreSQL + pgvector, embeddings, vector search).**
+> **Status: early development (Week 3 of 8 — retrieval evaluation).**
 > Nothing below is implemented yet unless it is listed under [Current progress](#current-progress).
 
 ## Goals
@@ -50,7 +50,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Chunk sizes measured in each candidate model's real tokenizer (see D-006 addendum): `mpnet` truncates 78% of chunks at 128 tokens, `bge-m3` and `multilingual-e5-large` do not
 - [x] Real embedder (BAAI/bge-m3 via `sentence-transformers`, CUDA), gated behind `pytest --slow`; a qualitative cross-lingual check over the real corpus (see [`docs/decisions.md`](docs/decisions.md) D-014 — not a benchmark)
 - [x] `scripts/ingest_documents.py` and `search()`: question → embedding → pgvector → relevant chunks, access-level filtering in SQL — **Week 2's goal** (see D-015; the cross-lingual retrieval example is qualitative, not a benchmark)
-- [ ] Retrieval evaluation
+- [x] Retrieval evaluation: 50 questions (25 EN, 25 AR), Recall@k, MRR, bge-m3 vs multilingual-e5-large, two chunk sizes (see [`docs/decisions.md`](docs/decisions.md) D-016 — **Week 3's goal**)
 - [ ] RAG with citations
 - [ ] FastAPI backend
 - [ ] Hybrid search and reranking
@@ -59,7 +59,20 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 
 ## Benchmark results
 
-TBD — benchmark not run yet.
+Week 3 retrieval evaluation, 50 questions (25 EN, 25 AR), 1200/200 chunking, full detail
+and caveats in [`docs/decisions.md`](docs/decisions.md) D-016:
+
+| | bge-m3 | multilingual-e5-large |
+| --- | --- | --- |
+| Overall Recall@1 / @3 / @5 | 0.826 / 1.000 / 1.000 | 0.804 / 0.891 / 0.913 |
+| Overall MRR | 0.913 | 0.863 |
+| Cross-lingual Recall@1 / MRR | 0.917 / 0.958 | 0.333 / 0.517 |
+
+`multilingual-e5-large` is perfect within one language on this corpus but far weaker
+cross-lingually, the retrieval direction the corpus was built to test. **This is 50
+questions over 46 chunks — a small, directional result, not a claim about either model in
+general.** `paraphrase-multilingual-mpnet-base-v2` was not evaluated: it truncates 78% of
+this corpus's chunks (D-006 addendum).
 
 ## Development setup (Windows / PowerShell)
 
@@ -125,8 +138,9 @@ wrapper falls back to it automatically. Slow tests are excluded from a plain `py
 ### Ingesting the corpus and searching it
 
 ```powershell
-python scripts/ingest_documents.py                    # bge-m3: stores and embeds all 32 documents
-python scripts/ingest_documents.py --embedder hashing  # the deterministic stand-in, no download
+python scripts/ingest_documents.py                     # bge-m3: stores and embeds all 32 documents
+python scripts/ingest_documents.py --embedder e5-large  # a second model, same 46 chunks
+python scripts/ingest_documents.py --embedder hashing   # the deterministic stand-in, no download
 ```
 
 Safe to run again: an unchanged document is skipped, and only chunks with no embedding yet
@@ -155,6 +169,17 @@ with connect(settings) as conn:
 `allowed_access_levels` is required, with no default: an empty collection returns nothing,
 and the filter runs inside the SQL query, so a caller can never see a chunk from a document
 above their access level (D-012, D-015).
+
+### Evaluating retrieval
+
+`data/evaluation_questions.json` holds 50 fixed questions with an expected document each (or
+none, for four deliberately unanswerable ones). One embedder and one chunking per run; run it
+again to compare another model or chunk size (results: D-016).
+
+```powershell
+python scripts/evaluate_retrieval.py --embedder bge-m3
+python scripts/evaluate_retrieval.py --embedder e5-large --chunk-size 600 --overlap 100
+```
 
 ## License
 
