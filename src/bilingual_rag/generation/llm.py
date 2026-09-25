@@ -11,6 +11,7 @@ for about twenty lines of ``urllib``. Three request settings matter and are alwa
 """
 
 import json
+import os
 import urllib.error
 import urllib.request
 from typing import Protocol, runtime_checkable
@@ -47,7 +48,7 @@ class OllamaLLM:
         self,
         model: str = DEFAULT_MODEL,
         *,
-        base_url: str = DEFAULT_BASE_URL,
+        base_url: str | None = None,
         num_ctx: int = DEFAULT_NUM_CTX,
         timeout: float = 300.0,
     ):
@@ -58,6 +59,9 @@ class OllamaLLM:
         if not timeout > 0:
             raise ValueError(f"timeout must be positive, got {timeout!r}")
         self.model_name = model
+        # In Docker, RAG_OLLAMA_URL points the API container at the host's Ollama.
+        if base_url is None:
+            base_url = os.environ.get("RAG_OLLAMA_URL", "").strip() or DEFAULT_BASE_URL
         self.base_url = base_url.rstrip("/")
         self.num_ctx = num_ctx
         self.timeout = timeout

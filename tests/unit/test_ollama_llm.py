@@ -220,3 +220,21 @@ class TestValidation:
 def test_satisfies_the_llm_protocol():
     assert isinstance(OllamaLLM(), LLM)
     assert OllamaLLM().model_name == "qwen3:8b"
+
+
+class TestServerAddress:
+    def test_defaults_to_the_local_server(self, monkeypatch):
+        monkeypatch.delenv("RAG_OLLAMA_URL", raising=False)
+        assert OllamaLLM().base_url == "http://127.0.0.1:11434"
+
+    def test_comes_from_the_environment(self, monkeypatch):
+        monkeypatch.setenv("RAG_OLLAMA_URL", " http://host.docker.internal:11434/ ")
+        assert OllamaLLM().base_url == "http://host.docker.internal:11434"
+
+    def test_a_blank_variable_means_the_default(self, monkeypatch):
+        monkeypatch.setenv("RAG_OLLAMA_URL", "  ")
+        assert OllamaLLM().base_url == "http://127.0.0.1:11434"
+
+    def test_an_explicit_address_wins(self, monkeypatch):
+        monkeypatch.setenv("RAG_OLLAMA_URL", "http://host.docker.internal:11434")
+        assert OllamaLLM(base_url="http://10.0.0.5:11434").base_url == "http://10.0.0.5:11434"
