@@ -1,5 +1,7 @@
 # Bilingual Enterprise RAG
 
+[![CI](https://github.com/YamenShatat/bilingual-enterprise-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/YamenShatat/bilingual-enterprise-rag/actions/workflows/ci.yml)
+
 A bilingual (Arabic / English) knowledge assistant for enterprise documents, built from first principles:
 hybrid retrieval, reranking, grounded answers with citations, document-level access control and a
 measured evaluation, served through a FastAPI backend.
@@ -59,7 +61,8 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Keyword search (PostgreSQL full-text, Arabic and English stemmers), hybrid fusion (measured: hurts cross-lingual retrieval, so not used), and a multilingual cross-encoder reranker used by default (see [`docs/decisions.md`](docs/decisions.md) D-021 to D-023 — **Week 6's goal**)
 - [x] Authentication and permissions: users with scrypt-hashed passwords, JWT login, Admin and Employee roles, per-user access levels read from the database on every request (see [`docs/decisions.md`](docs/decisions.md) D-024)
 - [x] Streamlit UI: login, questions with sources and bilingual refusals, the documents you may read, admin-only upload; a client of the API only (see [`docs/decisions.md`](docs/decisions.md) D-025 — **Week 7's goal**)
-- [ ] Docker and CI/CD
+- [x] Continuous integration: GitHub Actions runs ruff and the fast test suite against a real PostgreSQL + pgvector on every push and pull request (see [`docs/decisions.md`](docs/decisions.md) D-026)
+- [ ] Docker Compose for the whole application
 
 ## Benchmark results
 
@@ -148,7 +151,7 @@ volume, so editing it afterwards has no effect on an existing database. To start
 password run `docker compose down -v`, which **deletes the data**.
 
 Tests that need the database are skipped when it is not running, with the reason shown
-(`pytest -rs`). Set `RAG_REQUIRE_DATABASE=1` to make them fail instead, as CI should. They
+(`pytest -rs`). Set `RAG_REQUIRE_DATABASE=1` to make them fail instead, as CI does. They
 create and drop their own `rag_test_*` databases, so your development data is never touched.
 
 ### The real embedding model
