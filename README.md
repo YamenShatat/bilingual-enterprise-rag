@@ -53,7 +53,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Retrieval evaluation: 50 questions (25 EN, 25 AR), Recall@k, MRR, bge-m3 vs multilingual-e5-large, two chunk sizes (see [`docs/decisions.md`](docs/decisions.md) D-016 — **Week 3's goal**)
 - [x] Local LLM client for Ollama (`qwen3:8b`), standard library only, context window set explicitly (see [`docs/decisions.md`](docs/decisions.md) D-017)
 - [x] Context builder: numbered, whole-chunk evidence within a character budget measured in the LLM's own tokenizer (see [`docs/decisions.md`](docs/decisions.md) D-018)
-- [ ] RAG with citations
+- [x] Grounded answers with citations, or a refusal the system (not the model) enforces at four gates; measured on the 50 questions, including a prompt-injection comparison (see [`docs/decisions.md`](docs/decisions.md) D-019 — **Week 4's goal**)
 - [ ] FastAPI backend
 - [ ] Hybrid search and reranking
 - [ ] UI, authentication and permissions
@@ -75,6 +75,21 @@ cross-lingually, the retrieval direction the corpus was built to test. **This is
 questions over 46 chunks — a small, directional result, not a claim about either model in
 general.** `paraphrase-multilingual-mpnet-base-v2` was not evaluated: it truncates 78% of
 this corpus's chunks (D-006 addendum).
+
+Week 4 answer evaluation, the same 50 questions through `ask()` (bge-m3 retrieval, qwen3:8b
+answers), full detail in D-019:
+
+| | Count |
+| --- | --- |
+| Answerable questions answered | 44 of 46 |
+| Answers citing the document known to hold the fact | 42 of 46 |
+| Answers in the question's language | 44 of 44 |
+| Deliberately unanswerable questions refused | 4 of 4 |
+
+**Answer correctness is not scored** (the questions have no reference answers); every miss and
+nine answers were checked by hand against the source text. One answer stated a correct fact
+with the wrong citation, and a planted document that cites itself can still mislead the model
+(a known limitation, D-019).
 
 ## Development setup (Windows / PowerShell)
 
@@ -181,6 +196,39 @@ again to compare another model or chunk size (results: D-016).
 ```powershell
 python scripts/evaluate_retrieval.py --embedder bge-m3
 python scripts/evaluate_retrieval.py --embedder e5-large --chunk-size 600 --overlap 100
+```
+
+### Asking questions (needs Ollama)
+
+Install [Ollama](https://ollama.com) and pull the model (`ollama pull qwen3:8b`, about 5.2 GB),
+then ingest the corpus with bge-m3 as above.
+
+```python
+from bilingual_rag.config import load_database_settings
+from bilingual_rag.database.connection import connect
+from bilingual_rag.embeddings.sentence_transformer import bge_m3
+from bilingual_rag.generation.answer import ask
+from bilingual_rag.generation.llm import OllamaLLM
+
+with connect(load_database_settings()) as conn:
+    answer = ask(
+        conn,
+        bge_m3(),
+        OllamaLLM(),
+        "كم يوم إجازة سنوية مدفوعة يحصل عليها الموظف؟",
+        allowed_access_levels={"public", "employee"},
+    )
+    print(answer.refusal or answer.text)
+    for c in answer.citations:
+        print(c.number, c.document_id, "page", c.page)
+```
+
+`answer.refusal` is None for an answer, or says which gate refused: `no_results`,
+`low_score`, `model_refused` or `uncited` (D-019). To measure answering over the 50
+questions and save every answer for reading:
+
+```powershell
+python scripts/evaluate_answers.py --output answers.json
 ```
 
 ## License
