@@ -1,11 +1,15 @@
-# Local development database only. The application itself is not containerized yet.
+# The database, the API and the web UI (D-011, D-027).
 #
-#   docker compose up -d --wait db     start PostgreSQL + pgvector and wait until it is healthy
-#   docker compose down                stop it (data is kept in the pgdata volume)
-#   docker compose down -v             stop it and DELETE the data
+#   docker compose up -d --wait db     only the database (development and tests)
+#   docker compose up -d --build       everything: then open http://127.0.0.1:8501
+#   docker compose down                stop (the database is kept in the pgdata volume)
+#   docker compose down -v             stop and DELETE the database
 #
 # Settings come from .env (copy .env.example). PostgreSQL reads POSTGRES_PASSWORD only when it
 # first creates the data volume; changing it later has no effect until the volume is recreated.
+#
+# The API needs, on the host: Ollama running with qwen3:8b pulled, the bge-m3 and
+# bge-reranker-v2-m3 weights in the Hugging Face cache, and an NVIDIA GPU that Docker can use.
 
 services:
   db:
@@ -25,6 +29,70 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  api:
+    build: .
+    image: bilingual-enterprise-rag:local
+    env_file: .env
+    environment:
+      # Inside the Compose network the database is "db" on its own port 5432, whatever .env
+      # says for the host.
+      POSTGRES_HOST: db
+      POSTGRES_PORT: "5432"
+      # Ollama runs on the host. Docker Desktop forwards host.docker.internal to the host's
+      # loopback, so Ollama does not have to listen on the network.
+      RAG_OLLAMA_URL: http://host.docker.internal:11434
+    extra_hosts:
+      # Docker Desktop defines this name itself; other Docker engines need it spelled out.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # The host's model cache, read-only. Override HF_CACHE_DIR if yours is elsewhere.
+      - ${HF_CACHE_DIR:-~/.cache/huggingface}:/models/huggingface:ro
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"
+      interval: 10s
+      timeout: 6s
+      retries: 3
+      # Loading bge-m3 and the reranker takes a while on the first start.
+      start_period: 180s
+
+  ui:
+    image: bilingual-enterprise-rag:local
+    # 0.0.0.0 inside the container is needed for the published port to reach it; the host side
+    # is still bound to 127.0.0.1 below. With a wildcard address Streamlit looks up and prints
+    # the machine's public IP at startup (measured); naming the address browsers use stops that.
+    command:
+      - streamlit
+      - run
+      - src/bilingual_rag/ui/app.py
+      - --server.address=0.0.0.0
+      - --server.port=8501
+      - --browser.serverAddress=127.0.0.1
+      # The code in an image never changes: no need to poll the files for edits.
+      - --server.fileWatcherType=none
+    environment:
+      RAG_API_URL: http://api:8000
+    ports:
+      - "127.0.0.1:8501:8501"
+    depends_on:
+      api:
+        condition: service_healthy
 
 volumes:
   pgdata:

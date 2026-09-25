@@ -1,0 +1,11 @@
+# An allowlist: everything stays out of the image except what is listed below, so a secret
+# (.env) or a local file can never be copied in by accident.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!src/
+!scripts/
+!data/
+!.streamlit/
+**/__pycache__
