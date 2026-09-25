@@ -1117,3 +1117,50 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   revocation list (deactivating the user is the revocation); no password reset or user
   management endpoint (the script only creates users; changing one is SQL for now).
 - **Status:** Accepted.
+
+## D-025: A Streamlit UI that is only a client of the API
+
+- **Decision:** `src/bilingual_rag/ui/app.py`, run with `streamlit run src/bilingual_rag/ui/app.py`:
+  a login form, then an **Ask** tab (question, answer, sources table, or a plain refusal), a
+  **Documents** tab (what the user may read) and, for admins only, an **Upload** tab.
+  `ui/client.py` is a small `httpx` client for the API; `ui/text.py` holds what the page shows as
+  plain functions. `RAG_API_URL` points the UI at the API (default `http://127.0.0.1:8000`).
+- **Dependency (asked for and approved):** `streamlit` (Apache-2.0) in its own `ui` extra, about
+  70 MB of wheels with its dependencies (262 MB installed), so the API never depends on it.
+- **Why the UI only calls the API:** it never touches the database or the models, so every
+  permission check stays in one tested place (D-024). The upload tab is hidden from employees, but
+  that is convenience, not security: the API refuses their uploads (403) either way.
+- **Security in the page:**
+  - The login token lives in the browser session's server-side state, never in the URL or a
+    cookie. Logging out clears the whole session, so the next person on the same browser cannot
+    see the previous user's last answer (tested); a token the API rejects (expired, user
+    deactivated) sends the user back to the login form.
+  - Model output is untrusted text: answers are HTML-escaped before display (a test sends
+    `<script>` and `<img onerror=...>`), then shown with `dir="auto"` so Arabic answers read
+    right to left.
+  - Refusals are explained in plain English and Arabic, one message per reason (D-019, D-023).
+- **Three defaults changed in `.streamlit/config.toml`, each found by running it:**
+  - Streamlit listened on **every network interface** by default and, at startup, looked up and
+    printed this machine's public IP address. It now binds to `127.0.0.1` (confirmed from the
+    operating system's listening sockets); serving it on a network should be a deliberate,
+    HTTPS-fronted choice.
+  - Anonymous usage statistics are switched off (on by default).
+  - The developer toolbar, with its "Deploy" to Streamlit's cloud button, is hidden. Uploads above
+    10 MB are refused by the page before reaching the API's own limit.
+- **Checked for real:** the API and the UI running together; the login page renders in a browser.
+  The logged-in flows were driven with Streamlit's own headless `AppTest` against the real API
+  and database rather than through the browser: typing a password into a login form is left to a
+  person, even for a throwaway local account.
+- **Validation:** 27 new tests. The API client against the real app (login, a wrong password,
+  per-user documents and answers, admin-only upload, a rejected token logging the client out,
+  readable validation errors, an unreachable API); the page itself through `AppTest` (login form,
+  wrong password, tabs by role, answer and sources, a bilingual refusal, logout); the display
+  helpers. 23 deliberate breakages across three files; 3 missed on the first run, all real gaps,
+  each fixed with a test: validation errors shown as a raw structure (the message was still inside
+  it), `k` not sent to the API (the test user could see one document), and **logging out without
+  clearing the session**, which would have shown the previous user's last answer to the next one.
+- **Limits:** English interface labels (the content, answers and refusals are bilingual); one
+  question at a time, no chat history; the first question after the API starts waits for the LLM
+  to load (measured 31.5 to 39 s, D-020 and D-023).
+- **Status:** Accepted. Closes Week 7: Streamlit UI, JWT authentication, Admin and Employee roles,
+  document access control.
