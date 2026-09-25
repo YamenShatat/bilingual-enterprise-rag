@@ -1194,3 +1194,68 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   `slow` tests and the measured evaluations run only on the developer's machine. No branch
   protection yet: a failing run does not block merging until the repository settings require it.
 - **Status:** Accepted. Week 8, step 1.
+
+## D-027: Docker Compose for the whole app, GPU in the container, the LLM in the host's Ollama
+
+- **Decision:** `docker compose up -d --build --wait` runs three services: `db` (unchanged,
+  D-011), `api` and `ui`. One image (`Dockerfile`) serves both the API and the UI, which runs it
+  with a different command: the UI does not need torch, but a second image would store the same
+  layers again. The API container gets the NVIDIA GPU. The LLM is **not** containerised: the API
+  calls the host's Ollama at `http://host.docker.internal:11434`, set by a new `RAG_OLLAMA_URL`
+  (read by `OllamaLLM` when no address is passed; default unchanged). Model weights are **not**
+  in the image: the host's Hugging Face cache is mounted read-only and `HF_HUB_OFFLINE=1`.
+- **Why the host's Ollama (the user's choice, recommended):** qwen3:8b is already pulled and runs
+  on the GPU there; an Ollama container would keep a second 5.2 GB copy of the model. Docker
+  Desktop forwards `host.docker.internal` to the host's loopback, so Ollama keeps listening on
+  `127.0.0.1` only (checked from a container before any code was written).
+- **Why the GPU in the container (the user's choice):** the same speed as on the host (below);
+  on the CPU, reranking 20 chunks per question would be far slower. Checked before building:
+  `nvidia-smi` inside a container saw the RTX 4060 through Docker Desktop's WSL 2 GPU support.
+- **The image:** `python:3.14.6-slim-trixie` pinned by digest; PyTorch 2.14.0 for CUDA 13.0 from
+  PyTorch's index in its own layer, so a code change does not download it again; a non-root
+  user; no model weights. `.dockerignore` is an allowlist: only `pyproject.toml`, `README.md`,
+  `LICENSE`, `src/`, `scripts/`, `data/` and `.streamlit/` are sent to the build, so `.env` and
+  local files cannot be copied in by accident (checked: no `.env` in the image). Secrets reach
+  the containers at run time through Compose's `env_file: .env`.
+- **Size, measured:** the first build downloaded about 3 GB of wheels (torch 555 MB, cuDNN 553 MB,
+  cuBLAS 423 MB, triton 248 MB, the rest of CUDA) and took 17 min (1029 s). Installed Python
+  packages: 6.46 GB, of which the torch layer is 5.68 GB and every other dependency 0.90 GB.
+  Docker Desktop lists the image at 10.1 GB. A rebuild that changed only the later layers took
+  126 s with no torch download. This is the price of the GPU; a CPU-only image would be far
+  smaller (the CPU torch wheel is 196 MB, D-026) but was not built.
+- **Checked for real:**
+  - Start to healthy: 44 s (`up --wait`; the API's health check allows 180 s for model loading).
+    `/health` from the container reached the database, the host's Ollama and the reranker.
+  - A throwaway employee over HTTP, inside the API container: sees 27 documents (public and
+    employee only); an upload is refused (403); an English question and an Arabic question
+    about an English document were answered citing the expected documents; a question answered
+    only by an `hr` document was refused (`low_score`) and no restricted document was cited.
+    The user was deleted afterwards.
+  - The UI container reaches the API at `http://api:8000`, and its login page renders in a
+    browser. The logged-in UI flows were not driven through the browser (typing a password is
+    left to a person); they are covered by the `AppTest` tests of D-025.
+  - A fresh database through the containers only (a scratch database, dropped afterwards):
+    migrations, then ingestion with bge-m3, 32 documents and 46 chunks embedded in 35 s; a user
+    created with `create_user.py --password-stdin` could log in, a wrong password could not.
+- **Speed, measured:** every step in isolation runs at the host's speed (median of repeated
+  runs, host vs container): query embedding 15 vs 14 ms, reranking 20 chunks 251 vs 239 ms, an
+  LLM answer 2273 vs 2373 ms, an Ollama round trip 2 vs 5 ms. The same 10 evaluation questions
+  (5 EN, 5 AR), twice each: host median 3.9 and 3.5 s, container median 3.7 and 3.5 s. **The first
+  container measurement, right after the build, was slower (median 6.9 s, 18.1 s at worst) and
+  did not reproduce after restarting the API container; its cause was not found.** The first
+  question after start took 56.2 s (loading qwen3 into GPU memory; one measurement).
+- **Found by running it:** with `--server.address=0.0.0.0` (needed inside a container),
+  Streamlit went back to looking up and printing this machine's public IP at startup, the
+  behaviour D-025 had switched off. `--browser.serverAddress=127.0.0.1` stops it (read in
+  Streamlit's source, confirmed in the log), and the file watcher is off in the container.
+- **Validation:** 11 new tests: `RAG_OLLAMA_URL` (4); the Compose guard extended (the pulled
+  image pinned, the API and UI on the local image, every port on loopback, the model cache
+  read-only, no public IP lookup); the Dockerfile and `.dockerignore` (base image pinned by
+  digest, not root, offline models, the allowlist keeps `.env` out). 14 deliberate breakages
+  across the four files, all caught.
+- **Limits:** needs an NVIDIA GPU that Docker can use; it was not tried without one, where the
+  API container's GPU reservation is expected to stop it from starting. The image is not built
+  in CI (D-026 runs the tests, not the 10 GB build). The API container and the host's Ollama share
+  8 GB of GPU memory, so an API running outside Docker at the same time does not fit. Tested on
+  Windows with Docker Desktop only.
+- **Status:** Accepted. Week 8, step 2.

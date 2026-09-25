@@ -62,7 +62,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Authentication and permissions: users with scrypt-hashed passwords, JWT login, Admin and Employee roles, per-user access levels read from the database on every request (see [`docs/decisions.md`](docs/decisions.md) D-024)
 - [x] Streamlit UI: login, questions with sources and bilingual refusals, the documents you may read, admin-only upload; a client of the API only (see [`docs/decisions.md`](docs/decisions.md) D-025 — **Week 7's goal**)
 - [x] Continuous integration: GitHub Actions runs ruff and the fast test suite against a real PostgreSQL + pgvector on every push and pull request (see [`docs/decisions.md`](docs/decisions.md) D-026)
-- [ ] Docker Compose for the whole application
+- [x] Docker Compose for the whole application: the database, the API on the GPU and the UI, with the LLM in the host's Ollama (see [`docs/decisions.md`](docs/decisions.md) D-027)
 
 ## Benchmark results
 
@@ -133,7 +133,8 @@ ruff format --check .
 
 ### Database
 
-PostgreSQL with pgvector runs in Docker (the app itself does not, yet). Docker Desktop is
+PostgreSQL with pgvector runs in Docker (the whole app can too, see
+[Running everything with Docker](#running-everything-with-docker)). Docker Desktop is
 proprietary software, so check that its license terms cover your use; any Docker engine works.
 
 ```powershell
@@ -261,7 +262,8 @@ uvicorn bilingual_rag.api.app:create_app --factory --port 8000
 
 The API loads bge-m3 (16-bit on the GPU), the bge-reranker-v2-m3 reranker (about 2.3 GB, downloaded
 on first start) and talks to qwen3:8b in Ollama; together they fit in 8 GB of GPU memory (D-023).
-Interactive documentation is served at `http://127.0.0.1:8000/docs`.
+Interactive documentation is served at `http://127.0.0.1:8000/docs`. Set `RAG_OLLAMA_URL` if
+Ollama is not at `http://127.0.0.1:11434`.
 
 Every endpoint except `/health` needs a login (D-024). Before the first start, put a random
 signing secret in `.env` as `JWT_SECRET=...` (at least 32 characters; generate one with
@@ -308,6 +310,36 @@ right to left; every answer lists its sources, and a refusal says why in English
 The UI only calls the API (set `RAG_API_URL` if it is not at `http://127.0.0.1:8000`), so every
 permission is enforced there. `.streamlit/config.toml` keeps it on this machine only
 (`127.0.0.1`), turns off Streamlit's usage statistics and hides its "Deploy" button (D-025).
+
+### Running everything with Docker
+
+`docker compose` runs the database, the API and the UI. The LLM stays in Ollama on the host,
+and the model weights are read from the host's Hugging Face cache, so neither is copied into an
+image (D-027). You need:
+
+- Docker with NVIDIA GPU support (on Windows, Docker Desktop with the WSL 2 backend and a current
+  NVIDIA driver). Check with `docker run --rm --gpus all pgvector/pgvector:0.8.6-pg17 nvidia-smi`.
+- Ollama running on the host with `qwen3:8b` pulled.
+- The bge-m3 and bge-reranker-v2-m3 weights in `~/.cache/huggingface` (download them once
+  outside Docker, as above; set `HF_CACHE_DIR` if your cache is elsewhere).
+- A `.env` with `POSTGRES_PASSWORD` and `JWT_SECRET`, as above.
+
+```powershell
+docker compose up -d --build --wait     # first build: about 3 GB of downloads (PyTorch + CUDA)
+```
+
+For a new database, create the tables, ingest the corpus and create a user, all inside the
+image:
+
+```powershell
+docker compose run --rm api python scripts/migrate_database.py
+docker compose run --rm api python scripts/ingest_documents.py --embedder bge-m3
+docker compose run --rm api python scripts/create_user.py --username admin --role admin
+```
+
+Then open `http://127.0.0.1:8501`. Every port (database 5432, API 8000, UI 8501) is published
+on `127.0.0.1` only. The API container and Ollama share the GPU, so stop an API started outside
+Docker first: 8 GB holds one copy of the models, not two.
 
 ## License
 
