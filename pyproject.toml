@@ -25,6 +25,23 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
+# Not needed to run the application. Tokenizes text with a model's exact vocabulary, to measure
+# (never to split) how many chunks would be truncated by a candidate embedding model; see
+# docs/decisions.md D-006 and scripts/measure_chunk_tokens.py. Apache-2.0, maintained by
+# Hugging Face, no runtime dependency could do this (it needs each model's own vocabulary file).
+research = [
+    "tokenizers>=0.20,<0.24",
+]
+# Adds the real embedding model (BAAI/bge-m3 via sentence-transformers), on top of the
+# HashingEmbedder stand-in the fast test suite uses; see docs/decisions.md D-014.
+# Apache-2.0, maintained by Hugging Face. It pulls in torch itself, so on Windows with an
+# NVIDIA GPU install the CUDA build FIRST, then this extra, or pip may fetch a CPU-only
+# torch wheel from the default index instead:
+#     pip install torch --index-url https://download.pytorch.org/whl/cu130
+#     pip install -e ".[embeddings]"
+embeddings = [
+    "sentence-transformers>=5,<7",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -39,6 +56,7 @@ testpaths = ["tests"]
 pythonpath = ["tests"]
 markers = [
     "database: needs a reachable PostgreSQL (skipped when it is down; run `docker compose up -d --wait db`)",
+    "slow: needs a real embedding model (large download); run explicitly with `pytest --slow`",
 ]
 
 [tool.ruff]

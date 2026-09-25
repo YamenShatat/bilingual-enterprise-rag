@@ -46,7 +46,10 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Synthetic corpus: 32 bilingual documents in four formats with a manifest (see [`docs/dataset.md`](docs/dataset.md))
 - [x] PostgreSQL + pgvector in Docker (database only), settings from environment variables, health check (see [`docs/decisions.md`](docs/decisions.md) D-011)
 - [x] Database schema: versioned migrations, documents and chunks with manifest metadata, one embedding table per model, access-level-filtered reads (see [`docs/decisions.md`](docs/decisions.md) D-012)
-- [ ] Embedding model, ingestion script and vector search
+- [x] Embedder interface, a deterministic stand-in embedder and batched embedding of stored chunks (see D-013; the stand-in is lexical and says nothing about retrieval quality)
+- [x] Chunk sizes measured in each candidate model's real tokenizer (see D-006 addendum): `mpnet` truncates 78% of chunks at 128 tokens, `bge-m3` and `multilingual-e5-large` do not
+- [x] Real embedder (BAAI/bge-m3 via `sentence-transformers`, CUDA), gated behind `pytest --slow`; a qualitative cross-lingual check over the real corpus (see [`docs/decisions.md`](docs/decisions.md) D-014 — not a benchmark)
+- [ ] Ingestion script and vector search
 - [ ] Retrieval evaluation
 - [ ] RAG with citations
 - [ ] FastAPI backend
@@ -102,6 +105,22 @@ password run `docker compose down -v`, which **deletes the data**.
 Tests that need the database are skipped when it is not running, with the reason shown
 (`pytest -rs`). Set `RAG_REQUIRE_DATABASE=1` to make them fail instead, as CI should. They
 create and drop their own `rag_test_*` databases, so your development data is never touched.
+
+### The real embedding model
+
+`HashingEmbedder` (lexical, deterministic, no download) is enough for the fast test suite. The
+real model, `BAAI/bge-m3` through `sentence-transformers`, needs a multi-gigabyte download and
+is gated behind `pytest --slow`. On Windows with an NVIDIA GPU, install PyTorch's CUDA build
+**before** the `embeddings` extra, or pip may fetch a CPU-only wheel from the default index:
+
+```powershell
+python -m pip install torch --index-url https://download.pytorch.org/whl/cu130
+python -m pip install -e ".[dev,embeddings]"
+pytest --slow -m slow    # downloads the bge-m3 weights (MIT) on first run, then reuses them
+```
+
+Without a CUDA GPU, skip the `--index-url` line; `torch` will install a CPU build and the
+wrapper falls back to it automatically. Slow tests are excluded from a plain `pytest` run.
 
 ## License
 
