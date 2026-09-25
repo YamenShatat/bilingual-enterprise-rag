@@ -420,3 +420,71 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   with, pending the Week 3 comparison.
 - **Not decided yet:** `scripts/ingest_documents.py` and the `search()` function that joins a
   query's embedding to `list_chunks`'s access-level filter (step 4).
+
+## D-015: `search()` joins the access filter to cosine similarity in one SQL statement
+
+- **Decision:** `retrieval/search.py` provides `search(conn, embedder, query, allowed_access_levels,
+  *, k=5, language=None)`. It embeds `query` with `embedder.embed_query`, looks up that
+  embedder's registered table through `get_embedding_model` (a clear `EmbeddingModelError`
+  if nothing has been ingested for it yet, instead of a raw "relation does not exist"), and
+  runs one query joining that table to `chunks` and `documents`, filtered by
+  `d.access_level = ANY(...)` and ordered by pgvector's `<=>` (cosine distance). Each result
+  pairs a `StoredChunk` (reused from `database.repository`, not duplicated) with a `score`
+  (1 minus the distance, so higher is more similar). `scripts/ingest_documents.py` is the
+  companion script: it applies pending migrations, stores the manifest's documents and
+  chunks (idempotent, per D-012), then calls `embed_missing` for the chosen embedder
+  (`bge-m3` by default, `hashing` for a fast no-download smoke test), committing after each
+  batch so progress survives a crash.
+- **Why `allowed_access_levels` is required, with no default, exactly like `list_chunks`:**
+  this is the function the brief's security requirement names directly — "the search function
+  take the caller's permitted access_levels from day one and filter in SQL" (HANDOFF.md 5.3).
+  An empty collection returns nothing without even embedding the query; a bare string is
+  refused rather than silently read as individual letters.
+- **Why the embeddings table is looked up, not derived:** `embedder.key` and the table name
+  `embeddings_<key>` are already kept in step by a database CHECK constraint (D-012), but
+  looking the row up through `get_embedding_model` catches the one case that constraint
+  cannot: nobody has run `ingest_documents.py` for this embedder yet, so its table does not
+  exist. That becomes one clear error message instead of a confusing SQL exception.
+- **Why order by the raw `<=>` expression, not a computed alias:** `ORDER BY score DESC`
+  would work identically today, but ordering by the operator directly is what lets pgvector
+  use a distance-based index later (D-012: none exists yet, and none is added until the
+  corpus justifies it) without changing the query.
+- **Qualitative check, real bge-m3, real ingested corpus (32 documents, `scripts/ingest_documents.py`
+  run for real against the development database) — not a benchmark, eight hand-picked queries:**
+  - Same-language: an English leave question ranks the English leave policy first (0.717); an
+    Arabic leave question ranks the Arabic leave policy first (0.714).
+  - Cross-language, by the corpus's design (D-010): an Arabic question about the laptop refresh
+    cycle (an English-only fact) ranks the English laptop guide first; an Arabic question about
+    the remote-work policy (also English-only) ranks the English remote-work policy first; an
+    English question about overtime pay rates (an Arabic-only fact) ranks the Arabic overtime
+    document first (0.554); an English question about the petty cash limit (Arabic-only) ranks
+    the Arabic petty cash document first (0.505).
+  - A query about reporting a lost laptop ranked the IT laptop guide first. This was checked
+    against the source text directly rather than assumed correct: the guide contains "Report a
+    lost or stolen laptop to the security team on extension 4400 within 1 hour," so the top
+    result is right, not a lucky lexical overlap on the word "laptop."
+  - A query for a deliberately absent fact (executive stock options, D-010) scored noticeably
+    lower than every genuine match above (0.40 best, against 0.50-0.72 for real answers) — a
+    concrete, measured hint that a similarity threshold could support future refusal logic
+    (not built yet; that is a Week 4 concern once an LLM exists to refuse with).
+  - **This is eight queries on one small corpus with one model. It shows the mechanism working
+    end to end, including the cross-lingual retrieval the corpus was built to test. It is not
+    Recall@k or MRR, and no such number is claimed here.**
+- **Limits, stated openly:**
+  - Single-vector search only; no keyword/BM25 component yet (hybrid search is Week 6).
+  - No reranking, no LLM, no citation formatting — those are Weeks 4 and 6.
+  - The absent-fact score gap above is one observation, not a calibrated threshold.
+- **Validation:** 42 new tests (37 fast — including access-control tests that plant one
+  restricted document per level and confirm none leaks to a lower-privileged caller — and 5
+  marked `slow`, using the real model). Eleven deliberate breakages of `search()`'s own logic
+  were each caught, including flipping the sort order, replacing the similarity score with the
+  raw distance, and dropping the access-level filter entirely. `scripts/ingest_documents.py`
+  was run for real three times against the development database: once with the hashing
+  stand-in (32 inserted, 46 embedded), once again to confirm full idempotency (0 inserted, 0
+  newly embedded), and once with the real bge-m3 model (0 inserted — the documents already
+  existed unchanged from the hashing run — 46 newly embedded under a second, independent
+  embeddings table), demonstrating that two embedding models coexist over the same chunks.
+- **Status:** Accepted. Closes Week 2's stated goal: question -> embedding -> pgvector ->
+  relevant chunks, with document permissions enforced in SQL and no LLM involved.
+- **Not decided yet:** Week 3's retrieval evaluation (about 50 questions, Recall@k, MRR,
+  comparing embedding models and chunk sizes) is the next milestone.
