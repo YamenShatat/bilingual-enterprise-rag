@@ -15,6 +15,9 @@ authors = [{ name = "Yamen Shatat" }]
 dependencies = [
     # PDF text extraction (PDFium). Chosen over pypdf/pdfminer.six/PyMuPDF; see docs/decisions.md.
     "pypdfium2>=5,<6",
+    # PostgreSQL driver (libpq bundled by the binary extra). LGPL-3.0, used unmodified as an
+    # installed library. No ORM on purpose; see docs/decisions.md.
+    "psycopg[binary]>=3.2,<4",
 ]
 
 [project.optional-dependencies]
@@ -30,6 +33,9 @@ where = ["src"]
 testpaths = ["tests"]
 # Lets tests import shared helpers as `from support.arabic import ...`.
 pythonpath = ["tests"]
+markers = [
+    "database: needs a reachable PostgreSQL (skipped when it is down; run `docker compose up -d --wait db`)",
+]
 
 [tool.ruff]
 line-length = 100

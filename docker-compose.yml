@@ -1,0 +1,30 @@
+# Local development database only. The application itself is not containerized yet.
+#
+#   docker compose up -d --wait db     start PostgreSQL + pgvector and wait until it is healthy
+#   docker compose down                stop it (data is kept in the pgdata volume)
+#   docker compose down -v             stop it and DELETE the data
+#
+# Settings come from .env (copy .env.example). PostgreSQL reads POSTGRES_PASSWORD only when it
+# first creates the data volume; changing it later has no effect until the volume is recreated.
+
+services:
+  db:
+    # Pinned: pgvector 0.8.6 on PostgreSQL 17. Change both deliberately, not by floating a tag.
+    image: pgvector/pgvector:0.8.6-pg17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-rag}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env (copy .env.example)}
+      POSTGRES_DB: ${POSTGRES_DB:-rag}
+    ports:
+      # Loopback only: the database is not reachable from other machines on the network.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
