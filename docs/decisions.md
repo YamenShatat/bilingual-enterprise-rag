@@ -132,3 +132,30 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   real Word document, and 13 injected bugs, all caught (including removal of the DTD check and
   of the size cap).
 - **Status:** Accepted. Revisit if the corpus needs footnotes or list numbering.
+
+## D-010: The corpus is generated from sources and guarded by a manifest and tests
+
+- **Decision:** `data/manifest.json` records every document (language, format, department,
+  access level, bilingual pair, digit style, source). Markdown and text documents are written
+  directly; DOCX documents are generated from Markdown sources in `data/sources/` by a
+  standard-library writer; PDFs are exported by Microsoft Word from those sources. Tests keep
+  the manifest, files, sources and pairs consistent.
+- **Alternatives:** hand-authored DOCX and PDF files, or a corpus of loose files with no
+  metadata, or machine translation of every document from one language.
+- **Why:** the evaluation depends on the corpus being *right*: a bilingual pair that disagrees
+  on a number would make a correct retrieval look wrong. Generating DOCX from readable sources
+  keeps reviews meaningful (a diff of Markdown, not of a ZIP) and makes drift detectable.
+  The manifest carries exactly the metadata later stages need (department, access level,
+  language, pair) and lets results be split by language, format and digit style.
+- **Designed in:** facts that exist in only one language (for the two cross-lingual
+  directions), near-identical numbers across policies (for confusion), deliberately absent
+  facts (for refusal tests), restricted-access documents (for Week 7), both Arabic digit
+  systems, and one Arabic PDF so the known PDF loss is measured on a whole document.
+- **Guarantees:** paired documents state the same numbers with the same structure; digit
+  style, language and titles match the manifest; absent facts stay absent; every DOCX equals
+  its source. Twelve deliberate corruptions of the corpus were each caught by a test.
+- **Limits, stated openly:** the corpus is small (about 6,000 words, 46 chunks), uniformly
+  styled, AI-written, and its Arabic has not been reviewed by a native-speaker editor. See
+  `docs/dataset.md`.
+- **Status:** Accepted. Grow it (and add harder distractors) before drawing conclusions from
+  the Week 3 benchmark.

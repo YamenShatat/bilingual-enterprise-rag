@@ -1,0 +1,21 @@
+LAPTOP SETUP GUIDE
+Acme MENA Technology - IT Services
+Guide owner: IT Service Desk | Effective: 1 February 2026 | Version 3.1
+
+1. BEFORE YOU START
+Your laptop is enrolled in the company device management system before it is handed to you. Do not reset it or remove the management profile.
+
+2. FIRST SIGN-IN
+Sign in with your company email and the temporary password from HR. You will be asked to set a new password of at least 14 characters and to register your phone for multi-factor authentication.
+
+3. DISK ENCRYPTION
+Full disk encryption is enforced on every laptop and cannot be turned off. Keep your recovery key private. The IT Service Desk can retrieve it if you are locked out.
+
+4. REQUIRED SOFTWARE
+The following are installed automatically: the company VPN client, the multi-factor authentication app, endpoint protection and the collaboration suite. Do not install software that is not on the approved list in the software portal.
+
+5. LOST OR STOLEN LAPTOPS
+Report a lost or stolen laptop to the security team on extension 4400 within 1 hour. The device will be locked and wiped remotely.
+
+6. REFRESH CYCLE
+Laptops are replaced every 36 months. A request for earlier replacement needs the approval of your department head.
