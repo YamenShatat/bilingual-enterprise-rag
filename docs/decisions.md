@@ -857,3 +857,51 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
     switch is a new dependency, so it is not made without asking.
 - **Status:** Accepted. Closes Week 5's goal.
 - **Not decided yet:** hybrid search and reranking (Week 6); JWT users and roles (Week 7).
+
+## D-021: Keyword search with PostgreSQL full-text search and per-language Snowball stemmers
+
+- **Decision:** migration 0003 adds `chunks.search_vector` (a `tsvector`, GIN-indexed), and
+  `retrieval/keyword.py` provides `keyword_search(conn, query, allowed_access_levels, *, k=5,
+  language=None)`. Each chunk is stemmed in its document's language with PostgreSQL's built-in
+  Snowball stemmers (`arabic` or `english`). The question, whose language is unknown, is stemmed
+  with both, and its stemmed words are joined with OR. Results are ranked with `ts_rank_cd`.
+- **Alternatives:** BM25 implemented in Python over the permitted chunks (true IDF weighting,
+  but every query would read every permitted chunk out of the database, and the access filter
+  would move out of SQL); a BM25 extension such as ParadeDB (not in the pgvector image, a new
+  dependency); the `simple` configuration with no stemming (Arabic attaches the article and
+  other affixes to the word, so `الإجازة` would never match `إجازة`).
+- **Why PostgreSQL full-text search:** no new dependency, it scales with an index, and the access
+  filter stays in the same SQL statement as the match, exactly like `search()` (D-015): restricted
+  text never leaves the database. Measured on this server (PostgreSQL 17.11) before choosing:
+  the `arabic` configuration exists and stems usefully (`الإجازات` to `اجاز`, `السنوية` to `سنو`),
+  and `english` stems plurals and verb forms (`days` to `day`).
+- **Why one stemmer per chunk, not both:** the Arabic stemmer passes Latin words through
+  untouched and knows no English stopwords, so stemming every chunk with both would index "of"
+  and "the" in every English chunk, and `ts_rank_cd` has no IDF to discount them. A chunk has no
+  language column (its document does), so a trigger computes the vector on insert and on a text
+  change, and a second trigger restems a document's chunks if its language changes. The schema
+  keeps the index right whatever code writes a chunk (the D-012 principle).
+- **Arabic text is still not normalized (D-004):** the Arabic stemmer folds hamza forms and
+  strips the article, but only inside this index. The stored text, the embedding input and the
+  text the LLM sees are unchanged; a test checks the stored text after stemming.
+- **The question is untrusted input:** it is passed as a parameter, never formatted into SQL,
+  and each stemmed word is quoted with `quote_literal` before becoming a tsquery. A mutation test
+  showed the quoting is currently redundant: PostgreSQL's parser already splits on every tsquery
+  operator character (measured with `localhost:8000`, `it's`, URLs, Windows paths and times; all
+  built the same query quoted or not). It is kept as defence in depth against a future dictionary.
+  Tests pass tsquery syntax (`& | ! :* <->`), quotes, backslashes and an SQL injection attempt as
+  questions; each is treated as data.
+- **Observed on the development corpus (qualitative):** the English and Arabic leave questions
+  rank their own-language leave policy first; a question whose answer exists only in the other
+  language gets only weak, irrelevant matches, as expected (keyword search cannot cross
+  languages; that is what the vector search is for). Questions of only stopwords or punctuation
+  match nothing. Applying the migration to the development database filled in all 46 chunks.
+- **Validation:** 32 database tests (stemming per language, the triggers, the backfill of chunks
+  stored before the migration, ranking, the language filter, access control with one planted
+  document per level, untrusted input). Nineteen deliberate breakages (13 in the Python, 6 in the
+  migration's SQL): 17 caught; 2 equivalent, both kept on purpose (the quoting above, and the
+  empty-levels early return, since `ANY('{}')` matches nothing in SQL either; kept for symmetry
+  with `search()` and `list_chunks`).
+- **Limits:** `ts_rank_cd` is not BM25 (no IDF, no length normalization by default); hybrid
+  search uses only its rank order, which blunts this, but a rare exact term is not boosted.
+- **Status:** Accepted. Recall@k of keyword search alone and fused with vector search: D-022.
