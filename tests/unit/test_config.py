@@ -3,8 +3,11 @@ from pathlib import Path
 import pytest
 
 from bilingual_rag.config import (
+    MIN_ADMIN_KEY_LENGTH,
+    ApiSettings,
     ConfigError,
     DatabaseSettings,
+    load_api_settings,
     load_database_settings,
     parse_env_file,
 )
@@ -184,5 +187,57 @@ class TestLoadDatabaseSettings:
             "POSTGRES_DB",
             "POSTGRES_HOST",
             "POSTGRES_PORT",
+            "API_ACCESS_LEVELS",
+            "ADMIN_API_KEY",
         }
         assert load_database_settings(example, environ={}).port == 5432
+        api = load_api_settings(example, environ={})
+        assert api.access_levels == {"public"}
+        assert api.admin_api_key is None  # uploads are off unless someone sets a key
+
+
+class TestApiSettings:
+    def test_defaults_to_public_only_and_uploads_disabled(self):
+        settings = ApiSettings.from_env({})
+        assert settings.access_levels == frozenset({"public"})
+        assert settings.admin_api_key is None
+
+    def test_reads_a_comma_separated_list_with_spaces(self):
+        settings = ApiSettings.from_env({"API_ACCESS_LEVELS": " public , employee,hr "})
+        assert settings.access_levels == frozenset({"public", "employee", "hr"})
+
+    def test_a_blank_value_means_the_default(self):
+        assert ApiSettings.from_env({"API_ACCESS_LEVELS": "  "}).access_levels == {"public"}
+
+    @pytest.mark.parametrize("raw", ["admin", "public,Employee", "public,,superuser", ","])
+    def test_an_unknown_level_is_an_error_not_ignored(self, raw):
+        with pytest.raises(ConfigError, match="API_ACCESS_LEVELS"):
+            ApiSettings.from_env({"API_ACCESS_LEVELS": raw})
+
+    def test_a_short_admin_key_is_refused(self):
+        with pytest.raises(ConfigError, match="ADMIN_API_KEY"):
+            ApiSettings.from_env({"ADMIN_API_KEY": "x" * (MIN_ADMIN_KEY_LENGTH - 1)})
+
+    def test_the_minimum_is_sixteen_characters(self):
+        # A literal, not the constant: weakening the constant must fail a test.
+        with pytest.raises(ConfigError):
+            ApiSettings.from_env({"ADMIN_API_KEY": "fifteen-chars-x"})
+        assert ApiSettings.from_env({"ADMIN_API_KEY": "sixteen-chars-xx"}).admin_api_key
+
+    def test_an_admin_key_of_the_minimum_length_is_accepted(self):
+        key = "x" * MIN_ADMIN_KEY_LENGTH
+        assert ApiSettings.from_env({"ADMIN_API_KEY": key}).admin_api_key == key
+
+    def test_a_blank_admin_key_disables_uploads(self):
+        assert ApiSettings.from_env({"ADMIN_API_KEY": "   "}).admin_api_key is None
+
+    def test_the_admin_key_is_hidden_from_repr(self):
+        key = "a-very-secret-admin-key"
+        assert key not in repr(ApiSettings.from_env({"ADMIN_API_KEY": key}))
+
+    def test_load_merges_the_env_file_and_the_environment(self, tmp_path):
+        env_file = tmp_path / ".env"
+        env_file.write_text("API_ACCESS_LEVELS=employee\n", encoding="utf-8")
+        assert load_api_settings(env_file, {}).access_levels == {"employee"}
+        overridden = load_api_settings(env_file, {"API_ACCESS_LEVELS": "hr"})
+        assert overridden.access_levels == {"hr"}

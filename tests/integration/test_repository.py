@@ -162,7 +162,7 @@ class TestStoreDocument:
         chunks = make_chunks("hr/other.md", ["x"])
         with pytest.raises(ValueError, match="does not match the document path"):
             store_document(store_connection, metadata, chunks)
-        assert list_documents(store_connection) == []
+        assert list_documents(store_connection, EVERYONE) == []
 
     def test_a_path_used_by_another_document_is_rejected(self, store_connection):
         _put(store_connection)
@@ -193,7 +193,7 @@ class TestStoreDocument:
         bad = [Chunk(metadata.path, 1, 0, "abc", 0, 10)]
         with pytest.raises(psycopg.errors.CheckViolation), store_connection.transaction():
             store_document(store_connection, metadata, bad)
-        assert list_documents(store_connection) == []
+        assert list_documents(store_connection, EVERYONE) == []
 
 
 class TestArabicRoundTrip:
@@ -247,14 +247,14 @@ class TestListing:
         for number, path in enumerate(["b.md", "B.md", "a.md", "hr/a.md", "_x.md"]):
             metadata = make_metadata(id=f"doc-{number}", path=path)
             store_document(store_connection, metadata, make_chunks(path, ["x"]))
-        paths = [d.path for d in list_documents(store_connection)]
+        paths = [d.path for d in list_documents(store_connection, EVERYONE)]
         assert paths == sorted(paths)  # Python compares code points, like the "C" collation
 
     def test_a_missing_document_is_none(self, store_connection):
         assert get_document(store_connection, "nope") is None
 
     def test_an_empty_database_lists_nothing(self, store_connection):
-        assert list_documents(store_connection) == []
+        assert list_documents(store_connection, EVERYONE) == []
         assert list_chunks(store_connection, EVERYONE) == []
 
     def test_chunks_are_ordered_by_path_then_page_then_index(self, store_connection):
@@ -305,7 +305,7 @@ class TestDelete:
         other = make_metadata(id="other", path="other.md")
         store_document(store_connection, other, make_chunks(other.path, ["x"]))
         delete_document(store_connection, other.id)
-        assert [d.id for d in list_documents(store_connection)] == [keep.id]
+        assert [d.id for d in list_documents(store_connection, EVERYONE)] == [keep.id]
         assert len(list_chunks(store_connection, EVERYONE)) == 2
 
 
@@ -364,3 +364,34 @@ class TestAccessFilter:
         for hidden in ("hr", "management", "engineering"):
             assert f"secret of {hidden}" not in blob
             assert f"{hidden}.md" not in blob
+
+
+class TestDocumentListAccessFilter:
+    """Titles and paths can be sensitive too: the document list is filtered like chunks."""
+
+    @pytest.fixture(autouse=True)
+    def documents(self, store_connection):
+        for level in ACCESS_LEVELS:
+            metadata = make_metadata(
+                id=f"doc-{level}", path=f"{level}.md", title=f"Plan {level}", access_level=level
+            )
+            store_document(store_connection, metadata, make_chunks(metadata.path, ["x"]))
+
+    @pytest.mark.parametrize("level", ACCESS_LEVELS)
+    def test_a_single_level_lists_only_that_levels_documents(self, store_connection, level):
+        assert [d.id for d in list_documents(store_connection, {level})] == [f"doc-{level}"]
+
+    def test_several_levels_list_the_union_in_path_order(self, store_connection):
+        listed = list_documents(store_connection, ["public", "employee"])
+        assert [d.path for d in listed] == ["employee.md", "public.md"]
+
+    def test_an_empty_collection_lists_nothing(self, store_connection):
+        assert list_documents(store_connection, set()) == []
+
+    def test_a_bare_string_is_refused(self, store_connection):
+        with pytest.raises(TypeError, match="not one string"):
+            list_documents(store_connection, "employee")
+
+    def test_sql_looking_levels_are_only_data(self, store_connection):
+        assert list_documents(store_connection, {"public' OR '1'='1"}) == []
+        assert len(list_documents(store_connection, EVERYONE)) == len(ACCESS_LEVELS)

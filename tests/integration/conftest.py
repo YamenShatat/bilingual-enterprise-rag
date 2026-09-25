@@ -91,6 +91,16 @@ def migrated_database(database_settings) -> Iterator[DatabaseSettings]:
 
 
 @pytest.fixture
+def fresh_migrated_database(database_settings) -> Iterator[DatabaseSettings]:
+    """A migrated database of its own, for code that commits (the HTTP API opens and commits
+    its own connections, so the shared ``migrated_database`` would keep its writes)."""
+    with scratch_database(database_settings) as settings:
+        with connect(settings) as conn:
+            migrate(conn)
+        yield settings
+
+
+@pytest.fixture
 def store_connection(migrated_database):
     """A connection to the migrated database that is always rolled back.
 

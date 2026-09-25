@@ -24,6 +24,9 @@ class RecordingLLM:
         self.prompts.append(prompt)
         return "Answer [1]."
 
+    def check(self):
+        pass
+
 
 @pytest.fixture
 def conn(store_connection):

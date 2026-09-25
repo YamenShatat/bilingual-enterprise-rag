@@ -19,6 +19,7 @@ class StubOllama:
         self.paths: list[str] = []
         self.status = 200
         self.reply: bytes = json.dumps({"message": {"content": "ok"}}).encode("utf-8")
+        self.tags: bytes = json.dumps({"models": [{"name": "test-model:latest"}]}).encode()
 
     def respond(self, content: str) -> None:
         self.reply = json.dumps({"message": {"role": "assistant", "content": content}}).encode(
@@ -41,6 +42,14 @@ def stub():
             self.send_header("Content-Length", str(len(state.reply)))
             self.end_headers()
             self.wfile.write(state.reply)
+
+        def do_GET(self):
+            state.paths.append(self.requestline.split()[1])
+            self.send_response(state.status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(state.tags)))
+            self.end_headers()
+            self.wfile.write(state.tags)
 
         def log_message(self, *args):
             pass
@@ -146,6 +155,39 @@ class TestReply:
         llm = OllamaLLM(base_url=f"http://127.0.0.1:{port}", timeout=0.5)
         with pytest.raises(GenerationError, match="cannot reach Ollama"):
             llm.generate("sys", "q")
+
+
+class TestCheck:
+    def test_a_pulled_model_passes_and_asks_the_tags_endpoint(self, stub):
+        client(stub).check()
+        assert stub.paths == ["/api/tags"]
+        assert stub.requests == []  # no generation
+
+    def test_a_name_without_a_tag_matches_latest(self, stub):
+        client(stub).check()  # "test-model" is listed as "test-model:latest"
+
+    def test_an_exact_tagged_name_matches(self, stub):
+        OllamaLLM("test-model:latest", base_url=stub.url).check()
+
+    def test_a_model_that_is_not_pulled_fails_with_the_pull_command(self, stub):
+        with pytest.raises(GenerationError, match="not pulled.*ollama pull other"):
+            OllamaLLM("other", base_url=stub.url).check()
+
+    def test_a_different_tag_of_the_same_model_does_not_count(self, stub):
+        with pytest.raises(GenerationError, match="not pulled"):
+            OllamaLLM("test-model:70b", base_url=stub.url).check()
+
+    def test_a_malformed_tags_reply_fails(self, stub):
+        stub.tags = b"{}"
+        with pytest.raises(GenerationError, match="unexpected reply"):
+            client(stub).check()
+
+    def test_an_unreachable_server_fails(self):
+        with socket.socket() as sock:
+            sock.bind(("127.0.0.1", 0))
+            port = sock.getsockname()[1]
+        with pytest.raises(GenerationError, match="cannot reach Ollama"):
+            OllamaLLM(base_url=f"http://127.0.0.1:{port}", timeout=0.5).check()
 
 
 class TestValidation:

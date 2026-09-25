@@ -56,7 +56,9 @@ def test_every_document_is_stored_the_first_time_and_nothing_is_rewritten_the_se
 
 def test_the_stored_metadata_equals_the_manifest(loaded):
     conn, documents, _, _ = loaded
-    assert list_documents(conn) == sorted(documents, key=lambda d: d.path.encode("utf-8"))
+    assert list_documents(conn, ACCESS_LEVELS) == sorted(
+        documents, key=lambda d: d.path.encode("utf-8")
+    )
 
 
 def test_every_chunk_comes_back_exactly(loaded):

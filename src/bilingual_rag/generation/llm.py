@@ -35,6 +35,10 @@ class LLM(Protocol):
         """The model's reply to ``prompt``, following ``system``, exactly as returned."""
         ...
 
+    def check(self) -> None:
+        """Raise ``GenerationError`` if the model cannot answer right now. Cheap: no generation."""
+        ...
+
 
 class OllamaLLM:
     """Chat with one model on a local Ollama server."""
@@ -57,6 +61,27 @@ class OllamaLLM:
         self.base_url = base_url.rstrip("/")
         self.num_ctx = num_ctx
         self.timeout = timeout
+
+    def check(self) -> None:
+        """
+        Raises:
+            GenerationError: Ollama is unreachable, or the model is not pulled.
+        """
+        try:
+            timeout = min(self.timeout, 5.0)  # a health check must stay quick
+            with urllib.request.urlopen(f"{self.base_url}/api/tags", timeout=timeout) as response:
+                names = {model["name"] for model in json.load(response)["models"]}
+        except OSError as exc:
+            raise GenerationError(
+                f"cannot reach Ollama at {self.base_url} ({exc}); is it running?"
+            ) from exc
+        except (ValueError, KeyError, TypeError) as exc:
+            raise GenerationError("unexpected reply from Ollama's /api/tags") from exc
+        # A name without a tag means ":latest" to Ollama.
+        if self.model_name not in names and f"{self.model_name}:latest" not in names:
+            raise GenerationError(
+                f"model {self.model_name!r} is not pulled (`ollama pull {self.model_name}`)"
+            )
 
     def generate(self, system: str, prompt: str) -> str:
         """

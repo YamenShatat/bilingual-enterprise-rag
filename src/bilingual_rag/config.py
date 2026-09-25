@@ -11,6 +11,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from bilingual_rag.ingestion.manifest import ACCESS_LEVELS
+
 DEFAULT_ENV_FILE = Path(".env")
 
 _ENV_KEY = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
@@ -103,6 +105,58 @@ class DatabaseSettings:
         }
 
 
+MIN_ADMIN_KEY_LENGTH = 16
+
+
+@dataclass(frozen=True, slots=True)
+class ApiSettings:
+    """What the HTTP API may do before real authentication exists (Week 7).
+
+    ``access_levels`` are the levels every caller gets; they come from the server's
+    environment, never from a request, so a client cannot widen its own permissions.
+    ``admin_api_key`` guards uploads; None disables them. The key is hidden from ``repr``.
+    """
+
+    access_levels: frozenset[str]
+    admin_api_key: str | None = field(repr=False)
+
+    @classmethod
+    def from_env(cls, environ: Mapping[str, str]) -> "ApiSettings":
+        """``API_ACCESS_LEVELS`` (comma-separated, default ``public``) and ``ADMIN_API_KEY``.
+
+        Raises:
+            ConfigError: a level is unknown, or the admin key is shorter than
+                ``MIN_ADMIN_KEY_LENGTH`` characters.
+        """
+        raw = environ.get("API_ACCESS_LEVELS", "").strip() or "public"
+        levels = frozenset(part.strip() for part in raw.split(",") if part.strip())
+        unknown = levels - set(ACCESS_LEVELS)
+        if unknown or not levels:
+            raise ConfigError(
+                f"API_ACCESS_LEVELS has unknown levels {sorted(unknown)}; "
+                f"expected a comma-separated subset of {ACCESS_LEVELS}"
+            )
+        key = environ.get("ADMIN_API_KEY", "").strip() or None
+        if key is not None and len(key) < MIN_ADMIN_KEY_LENGTH:
+            raise ConfigError(
+                f"ADMIN_API_KEY must be at least {MIN_ADMIN_KEY_LENGTH} characters "
+                "(or unset, which disables uploads)"
+            )
+        return cls(access_levels=levels, admin_api_key=key)
+
+
+def _merged_env(env_file: Path | None, environ: Mapping[str, str] | None) -> dict[str, str]:
+    merged: dict[str, str] = {}
+    if env_file is not None and env_file.is_file():
+        try:
+            # utf-8-sig: PowerShell 5.1 writes a BOM with -Encoding utf8.
+            merged.update(parse_env_file(env_file.read_text(encoding="utf-8-sig")))
+        except UnicodeDecodeError as exc:
+            raise ConfigError(f"{env_file} is not valid UTF-8") from exc
+    merged.update(os.environ if environ is None else environ)
+    return merged
+
+
 def load_database_settings(
     env_file: Path | None = DEFAULT_ENV_FILE,
     environ: Mapping[str, str] | None = None,
@@ -116,12 +170,12 @@ def load_database_settings(
         ConfigError: the file is not valid UTF-8 or not ``KEY=VALUE`` lines, or a setting is
             missing or invalid.
     """
-    merged: dict[str, str] = {}
-    if env_file is not None and env_file.is_file():
-        try:
-            # utf-8-sig: PowerShell 5.1 writes a BOM with -Encoding utf8.
-            merged.update(parse_env_file(env_file.read_text(encoding="utf-8-sig")))
-        except UnicodeDecodeError as exc:
-            raise ConfigError(f"{env_file} is not valid UTF-8") from exc
-    merged.update(os.environ if environ is None else environ)
-    return DatabaseSettings.from_env(merged)
+    return DatabaseSettings.from_env(_merged_env(env_file, environ))
+
+
+def load_api_settings(
+    env_file: Path | None = DEFAULT_ENV_FILE,
+    environ: Mapping[str, str] | None = None,
+) -> ApiSettings:
+    """Like ``load_database_settings``, for ``ApiSettings``."""
+    return ApiSettings.from_env(_merged_env(env_file, environ))

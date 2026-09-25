@@ -782,3 +782,78 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
 - **Not decided yet:** hybrid search and reranking (Week 6), which may fix q043's retrieval
   miss; the HTTP API (Week 5); per-sentence citation checking; document trust against planted
   sources.
+
+## D-020: A FastAPI backend whose permissions come from the server, never the request
+
+- **Decision:** `bilingual_rag/api/app.py` provides `create_app()`, run with
+  `uvicorn bilingual_rag.api.app:create_app --factory`. Four endpoints:
+  - `POST /query` (`{"question", "k"}`) returns `{"answer", "refusal", "citations", "top_score"}`
+    from `ask()` (D-019). `answer` is null exactly when `refusal` is set, so a refused or uncited
+    reply is never shown as an answer. A missing LLM or an empty embeddings table is 503, not a
+    refusal: nothing was decided.
+  - `GET /documents` lists the permitted documents' metadata, without storage paths.
+  - `POST /documents` uploads one file (multipart: the file plus the manifest's metadata fields),
+    then chunks, stores and embeds it in one transaction.
+  - `GET /health` reports the database (the existing `check_health`) and the LLM
+    (`OllamaLLM.check()`, which reads Ollama's model list and generates nothing). It is 503 only
+    when the database is down: without the LLM, documents can still be listed.
+- **Dependencies (asked for and approved, each justified):** an `api` extra with `fastapi`
+  (MIT), `uvicorn` (BSD-3), `python-multipart` (Apache-2.0, for uploads) and `httpx` (BSD-3,
+  for FastAPI's test client; already installed by the embeddings extra). Versions and wheel sizes
+  were read from PyPI's metadata before asking (about 2.8 MB new, `pydantic-core` the largest at
+  about 2 MB); the installed versions matched the quote exactly.
+- **Why the caller's access levels come from a server setting (the user's decision):**
+  authentication is Week 7. Until then every caller gets `API_ACCESS_LEVELS` from the server's
+  environment (default `public`). A request cannot supply levels: `QueryRequest` rejects unknown
+  fields (`extra="forbid"`), so a client that sends `access_levels` gets a 422 instead of having
+  it silently ignored. Week 7 replaces the setting with the levels in the caller's token; the
+  endpoints do not change.
+- **Why uploads need a static admin key (the user's decision):** an open upload endpoint would
+  let anyone plant a document at any access level, the attack D-019 could not fully stop. Uploads
+  need `X-Admin-Key` to match `ADMIN_API_KEY` (compared with `secrets.compare_digest`, so timing
+  does not reveal how much of a guess was right); an unset key disables uploads (403), a missing
+  or wrong one is 401, and a key under 16 characters is refused at startup. Week 7 replaces it
+  with the Admin role.
+- **Upload handling, each rule tested:** only the client filename's extension is used (md, txt,
+  docx, pdf; anything else is 415), and the stored path is always `uploads/<id>.<ext>`, so the
+  name cannot traverse paths or reach the database. The file is read up to 10 MB plus one byte
+  (413 above the limit, so an oversized upload is never read whole), written to a temporary
+  folder for the existing loaders, and deleted. Metadata goes through the same `DocumentMetadata`
+  validation as the manifest (422 on failure). An existing id is 409: `store_document` would
+  otherwise quietly replace a corpus document, and an upload is not the way to do that. A file
+  that cannot be decoded or holds no text is 422.
+- **A security gap found while building `GET /documents`, fixed first in its own commit:**
+  `list_documents()` returned every document's metadata, including restricted titles, and titles
+  can be sensitive on their own. It now requires `allowed_access_levels` with no default and
+  filters in SQL, like `list_chunks` and `search()`. Only tests called it before.
+- **Checked for real, over HTTP (not only through the test client):** uvicorn with bge-m3 and
+  qwen3:8b against the development database, `API_ACCESS_LEVELS=public,employee`, and a random
+  admin key generated in memory and never printed. Health 200 with both parts up; 27 of 32
+  documents listed, only `public` and `employee`; the English and Arabic leave questions answered
+  with citations; an English question answered from an Arabic source; the relocation question
+  refused by the model; **"the maximum salary for grade G4" refused as `low_score`**, because its
+  document is `hr`-level and never reached the evidence (access control, confirmed against the
+  database); a request that tried to send its own levels, 422; an upload without the key, 401;
+  with it, 201, embedded, and answerable at once ("valid for 12 months [1]"). The first query
+  took 39 s while Ollama loaded the model into GPU memory; later ones took 5 to 12 s. The log
+  held request lines only (no question text, no secrets). The smoke-test document was then
+  deleted and the database checked: back to 32 documents, 46 chunks, 46 bge-m3 embeddings.
+- **Validation:** 79 new tests: 50 API tests against a real database (one scratch database per
+  test, since the API commits), 13 for the settings, 7 for `check()`, 9 for the document-list
+  filter. Deliberate breakages: 38. In the API: 24, including widening either endpoint's levels,
+  allowing extra request fields, skipping the key comparison, returning refused text as the
+  answer, and storing the client's filename. One miss on the first run (the upload's `digits`
+  field was never checked), fixed with a test that checks every stored field. In the settings: 7,
+  one miss (tests used the constant for the key's minimum length, so weakening it passed), fixed
+  with a literal 15-character key. In `check()`: 4, none missed. In the document-list filter: 3,
+  one equivalent (removing the empty-levels early return, since `ANY('{}')` matches nothing in
+  SQL either; kept for symmetry with `list_chunks` and `search()`).
+- **Limits, stated openly:**
+  - One PostgreSQL connection per request, no pool. Fine for a single user and a demo;
+    `psycopg_pool` is the upgrade if concurrency matters.
+  - The static admin key and the server-wide access levels are stand-ins until Week 7's users
+    and roles; every caller shares one identity.
+  - Starlette's test client warns that `httpx` is deprecated in favour of `httpx2`. It works; the
+    switch is a new dependency, so it is not made without asking.
+- **Status:** Accepted. Closes Week 5's goal.
+- **Not decided yet:** hybrid search and reranking (Week 6); JWT users and roles (Week 7).

@@ -38,6 +38,9 @@ class ScriptedLLM:
             raise self.reply
         return self.reply
 
+    def check(self):
+        pass
+
 
 def two_results():
     return [
