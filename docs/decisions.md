@@ -1259,3 +1259,58 @@ Status values: **Accepted** (in use), **Provisional** (in use, to be validated b
   8 GB of GPU memory, so an API running outside Docker at the same time does not fit. Tested on
   Windows with Docker Desktop only.
 - **Status:** Accepted. Week 8, step 2.
+
+## D-028: A held-out evaluation set, measured with every threshold frozen
+
+- **Decision:** `data/evaluation_questions_heldout.json`, 40 new questions (20 EN, 20 AR) written
+  after every threshold was fixed and never used to tune anything: 12 same-language, 8
+  cross-lingual, 4 near-miss and **16 absent-fact** (the first set had 4). None repeats a fact
+  asked in the first 50. Each expected document was checked against its text (the question's
+  `notes` gives the place); each absent fact was checked by reading all 32 documents and then
+  by a keyword search whose every hit was a false match ("pet" in "competitive"). Most absent
+  facts sit next to a real topic: a taxi rate where the policy gives a car rate, sick-leave
+  carry-over where only annual leave carries over, a housing allowance beside the allowances
+  that exist. The Arabic was AI-written and has not been reviewed by a native speaker.
+- **Why:** the refusal floors (cosine 0.50, rerank 0.01) were chosen on the same 50 questions
+  they were reported on (D-019, D-023), and 4 absent-fact questions measure refusals poorly.
+  A held-out set is the honest test. **Nothing was changed after seeing these results**, so the
+  numbers stay unbiased.
+- **Retrieval** (`evaluate_retrieval.py --questions data/evaluation_questions_heldout.json`,
+  24 answerable questions):
+
+  | | R@1 | MRR | Cross-lingual R@1 |
+  | --- | --- | --- | --- |
+  | Vector | 0.917 | 0.958 | 1.000 |
+  | Vector + reranker (default) | 1.000 | 1.000 | 1.000 |
+
+- **The floors do not separate unseen questions.** Vector scores: the lowest answerable top
+  score was 0.517, and 15 of the 16 absent-fact top scores were above 0.50 (lowest 0.479, mean
+  0.565, max 0.660), so the cosine floor would refuse one of them. Rerank scores: the lowest answerable was 0.015, just
+  above the 0.01 floor; absent facts averaged 0.137 and one reached 0.980. The rerank floor
+  refused 6 of the 16 absent facts; the rest reached the model.
+- **Answers** (`evaluate_answers.py --reranker bge-reranker-v2-m3`, qwen3:8b, 340 s):
+  - **Absent facts: 16 of 16 refused** (6 `low_score`, 10 `model_refused`). No answer was
+    invented, including for the absent fact the reranker scored at 0.980.
+  - Answerable: **20 of 24 answered**, 19 citing the expected document, 20 of 20 in the
+    question's language. The first set gave 45 of 46.
+  - Read by hand: 18 of the 20 answers are right and rightly cited. **h027 is wrong**: "Gulf
+    Standard Time" became Greenwich time in the Arabic answer (4 hours off), with the right
+    citation. **h008** gives the right fact but cites the compensation bands, not the overtime
+    policy: the citation check only confirms that a cited source exists (D-019).
+  - **The 4 `uncited` refusals had right answers** and a wrong source number. Replaying them
+    showed why: **the model cited the document's own section number** ("## 4." became `[4]`)
+    instead of the source number, when only one or two sources were given. The gate refused
+    them as designed, a safe failure, but an avoidable one: numbered headings inside chunks
+    look like source markers. A fix (source markers that cannot be mistaken for headings) is
+    left until after V1: making it now, then measuring it on this set, would spend the set's
+    independence.
+- **Where it runs:** these measurements ran inside the Docker image (D-027), because Windows
+  Smart App Control, switched to enforcing on the development machine between sessions,
+  blocks PyTorch's unsigned DLLs outside a container.
+- **Validation:** 4 tests keep the held-out file valid (40 questions, 20/20, 16 absent facts,
+  no shared question or id with the first set, every expected document in the manifest); 4
+  deliberate breakages of the file, all caught.
+- **Limits:** 40 questions over the same 32 documents and 46 chunks, one run of one model, and
+  answer correctness judged by one reader, not scored. The floors' failure to separate is the
+  main finding; recalibrating them needs more questions than both sets together.
+- **Status:** Accepted. Week 8, step 3.
