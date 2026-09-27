@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bilingual-enterprise-rag"
-version = "0.1.0"
+version = "1.0.0"
 description = "Bilingual (Arabic/English) enterprise RAG platform with hybrid retrieval, reranking, evaluation and access control."
 readme = "README.md"
 requires-python = ">=3.12"

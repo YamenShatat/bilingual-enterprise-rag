@@ -27,6 +27,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel, ConfigDict, Field
 
+from bilingual_rag import __version__
 from bilingual_rag.auth.tokens import TokenError, issue_token, read_token
 from bilingual_rag.auth.users import User, authenticate, get_user
 from bilingual_rag.config import (
@@ -140,7 +141,7 @@ def create_app(services_factory: Callable[[], Services] = default_services) -> F
         app.state.services = services_factory()
         yield
 
-    app = FastAPI(title="Bilingual Enterprise RAG", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Bilingual Enterprise RAG", version=__version__, lifespan=lifespan)
 
     def services(request: Request) -> Services:
         return request.app.state.services
