@@ -12,6 +12,7 @@ from bilingual_rag.evaluation.questions import (
 )
 
 REAL_FILE = Path(__file__).resolve().parents[2] / "data" / "evaluation_questions.json"
+HELD_OUT_FILE = REAL_FILE.with_name("evaluation_questions_heldout.json")
 
 
 def _entry(**overrides):
@@ -49,6 +50,33 @@ class TestRealQuestionSet:
         absent = [q for q in questions if q.category == "absent_fact"]
         assert absent
         assert all(q.expected_document_id is None for q in absent)
+
+
+class TestHeldOutQuestionSet:
+    def test_the_held_out_set_is_valid_and_split_20_20(self):
+        questions = load_questions(HELD_OUT_FILE)
+        assert len(questions) == 40
+        assert sum(q.language == "en" for q in questions) == 20
+        assert sum(q.language == "ar" for q in questions) == 20
+
+    def test_16_absent_fact_questions_8_per_language(self):
+        absent = [q for q in load_questions(HELD_OUT_FILE) if q.category == "absent_fact"]
+        assert len(absent) == 16
+        assert sum(q.language == "ar" for q in absent) == 8
+
+    def test_no_question_is_shared_with_the_first_set(self):
+        first = {q.question for q in load_questions(REAL_FILE)}
+        first_ids = {q.id for q in load_questions(REAL_FILE)}
+        held_out = load_questions(HELD_OUT_FILE)
+        assert not first & {q.question for q in held_out}
+        assert not first_ids & {q.id for q in held_out}
+
+    def test_every_expected_document_exists_in_the_manifest(self):
+        manifest = json.loads((REAL_FILE.parent / "manifest.json").read_text(encoding="utf-8"))
+        documents = manifest["documents"] if isinstance(manifest, dict) else manifest
+        ids = {d["id"] for d in documents}
+        for q in load_questions(HELD_OUT_FILE):
+            assert q.expected_document_id is None or q.expected_document_id in ids, q.id
 
 
 class TestParseQuestions:

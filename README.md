@@ -109,6 +109,24 @@ document that holds its fact (one cites the translated copy). The refusal floors
 these same questions, and a planted document that cites itself can still mislead the model
 (known limitations, D-019, D-023).
 
+**Held-out set** (D-028): 40 new questions (20 EN, 20 AR; 16 of them deliberately
+unanswerable), written after every threshold was fixed and measured without changing anything:
+
+| | Held-out result |
+| --- | --- |
+| Retrieval, vector + reranker: R@1 / MRR (24 answerable) | 1.000 / 1.000 |
+| Unanswerable questions refused | 16 of 16 |
+| Answerable questions answered | 20 of 24 |
+| Answers citing the document known to hold the fact | 19 of 24 |
+| Answers in the question's language | 20 of 20 |
+| Answers right on reading (and rightly cited) | 18 of 20 |
+
+What it showed: retrieval and refusals held up on unseen questions, but **the score floors do
+not separate them** (15 of 16 unanswerable questions scored above the cosine floor), so refusals
+rely on the model and the citation check. One Arabic answer turned Gulf time into Greenwich
+time, one cited the wrong document, and four right answers were refused because the model cited
+a section number instead of a source number.
+
 ## Development setup (Windows / PowerShell)
 
 Requires Python 3.12 or newer. Keep the path to the virtual environment short: the PDF
