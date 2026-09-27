@@ -3,37 +3,61 @@
 [![CI](https://github.com/YamenShatat/bilingual-enterprise-rag/actions/workflows/ci.yml/badge.svg)](https://github.com/YamenShatat/bilingual-enterprise-rag/actions/workflows/ci.yml)
 
 A bilingual (Arabic / English) knowledge assistant for enterprise documents, built from first principles:
-hybrid retrieval, reranking, grounded answers with citations, document-level access control and a
-measured evaluation, served through a FastAPI backend.
+cross-lingual retrieval, reranking, grounded answers with citations, document-level access control
+enforced in SQL and a measured evaluation, served through a FastAPI backend and a web UI, all
+running locally.
 
-> **Status: in development (Weeks 1-7 of 8 done — through the web UI and user permissions).**
-> Nothing below is implemented yet unless it is listed under [Current progress](#current-progress).
+> **Status: feature-complete for version 1 (all 8 weeks of the roadmap).** Every number below
+> was measured with a committed script; see [Limitations](#limitations) for what it does not do.
 
-## Goals
+## What it does
 
-- Ingest Arabic and English documents and preserve Arabic text correctly end to end.
-- Retrieve across languages: Arabic question → English document, and English question → Arabic document.
-- Combine vector and keyword search, then rerank the candidates.
-- Answer only from retrieved evidence, cite document and page, and refuse unsupported questions.
-- Enforce document permissions **before** any text reaches the LLM.
-- Report measured retrieval and generation results — no numbers without a benchmark run.
+- Ingests Arabic and English documents (Markdown, text, DOCX, PDF) and keeps Arabic text exact
+  end to end.
+- Retrieves across languages: an Arabic question finds an English document and the reverse.
+- Answers only from retrieved evidence, cites document and page, and refuses when the evidence
+  is missing. The system enforces the refusal, not the model.
+- Enforces each user's document permissions **inside the SQL query**, before any text can reach
+  the LLM.
+- Reports measured retrieval and answer quality, including a held-out set written after every
+  threshold was fixed.
 
-## Planned architecture
+## Screenshots
+
+An Arabic question answered from an English document, with its source:
+
+![An Arabic question about remote work, answered in Arabic and citing the English Remote Work Policy](docs/images/ask-arabic.png)
+
+A question the documents cannot answer is refused, in English and Arabic:
+
+![A question about bereavement leave, refused because the documents do not contain the answer](docs/images/refusal.png)
+
+The documents a user may read, filtered by their access levels (an admin sees all 32):
+
+![The Documents tab listing documents with their language, format and access level](docs/images/documents.png)
+
+## Architecture
 
 ```text
-Upload → Parser → Cleaner → Chunker → Metadata → Embeddings → PostgreSQL + pgvector
+Ingestion   file (md, txt, docx, pdf) → loader → Arabic-safe cleaner → chunker (1,200 / 200)
+            → PostgreSQL (documents, chunks, access level) → bge-m3 embeddings in pgvector
 
-Question → Query processing → Hybrid retrieval (vector + keyword)
-         → Metadata & permission filtering → Reranker → Context builder
-         → LLM → Citation validation → Grounded answer + sources
+Question    login (JWT) → the user's access levels, read from the database
+            → bge-m3 query embedding → vector search, top 20, access filter in SQL
+            → bge-reranker-v2-m3 → top 5 above the floor → numbered evidence (≤ 12,000 chars)
+            → qwen3:8b in Ollama → citation check → answer with sources, or a refusal
 ```
 
-## Technology (planned)
+Keyword (PostgreSQL full-text) and hybrid search are built and measured but not used: fusion
+wrecked cross-lingual retrieval (D-022). The Streamlit UI talks only to the API, so every
+permission check lives in one tested place (D-025).
 
-Python 3.12+, FastAPI, PostgreSQL + pgvector, multilingual embedding models (bge-m3, chosen by
-measurement in D-016), Ollama for local LLMs (qwen3:8b, D-017), Streamlit, pytest, Docker,
-GitHub Actions.
-Each choice will be recorded, with the alternatives considered, in `docs/decisions.md`.
+## Technology
+
+Python 3.14 (3.12+), FastAPI, PostgreSQL 17 + pgvector, bge-m3 embeddings (chosen by measurement,
+D-016), the bge-reranker-v2-m3 cross-encoder (D-023), qwen3:8b through Ollama (D-017), Streamlit,
+pytest, ruff, Docker Compose, GitHub Actions. Every choice is recorded with the alternatives
+considered in [`docs/decisions.md`](docs/decisions.md) (D-001 to D-028).
 
 ## Dataset
 
@@ -63,6 +87,7 @@ The corpus describes a fictional company, *Acme MENA Technology*. See [`data/REA
 - [x] Streamlit UI: login, questions with sources and bilingual refusals, the documents you may read, admin-only upload; a client of the API only (see [`docs/decisions.md`](docs/decisions.md) D-025 — **Week 7's goal**)
 - [x] Continuous integration: GitHub Actions runs ruff and the fast test suite against a real PostgreSQL + pgvector on every push and pull request (see [`docs/decisions.md`](docs/decisions.md) D-026)
 - [x] Docker Compose for the whole application: the database, the API on the GPU and the UI, with the LLM in the host's Ollama (see [`docs/decisions.md`](docs/decisions.md) D-027)
+- [x] Held-out evaluation: 40 new questions, 16 of them unanswerable, measured with every threshold frozen (see [`docs/decisions.md`](docs/decisions.md) D-028 — **Week 8's goal**, with CI and Docker)
 
 ## Benchmark results
 
@@ -358,6 +383,29 @@ docker compose run --rm api python scripts/create_user.py --username admin --rol
 Then open `http://127.0.0.1:8501`. Every port (database 5432, API 8000, UI 8501) is published
 on `127.0.0.1` only. The API container and Ollama share the GPU, so stop an API started outside
 Docker first: 8 GB holds one copy of the models, not two.
+
+## Limitations
+
+- **Small evaluation.** 32 documents, 46 chunks, 90 questions (50 plus a held-out 40), one run of
+  one model. Answer correctness is judged by reading, not scored.
+- **The refusal floors are not calibrated.** They were chosen on the first 50 questions, and on the
+  held-out set they barely separate answerable from unanswerable questions (D-028). Refusals held
+  there because the model declined and the citation check held.
+- **The citation check confirms that a cited source exists, not that it supports the claim.** One
+  held-out answer cited the wrong document. The model sometimes cites a section number instead of
+  a source number, and the answer is then refused (4 of 24 held-out questions).
+- **A planted document that states a false policy and cites itself can mislead the model**
+  (a known-failing test, D-019). Documents need review before upload.
+- **The Arabic** of the corpus and the questions was AI-written and has not been reviewed by a
+  native speaker. Arabic extracted from PDFs is degraded (D-008); prefer DOCX or Markdown.
+- **Without the reranker** the prompt produced one confidently wrong cited answer (D-023); the
+  no-reranker path is weaker.
+- **Authentication** has no login rate limiting or lockout, no token revocation (deactivate the
+  user instead) and no password reset or user management endpoint (a script for now).
+- **The API** opens one database connection per request (no pool). The UI has English labels and
+  no chat history.
+- **Docker** needs an NVIDIA GPU that Docker can use; the image is about 10 GB and was tested on
+  Windows with Docker Desktop only (D-027).
 
 ## License
 
