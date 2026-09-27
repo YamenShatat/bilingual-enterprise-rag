@@ -22,6 +22,20 @@ running locally.
 - Reports measured retrieval and answer quality, including a held-out set written after every
   threshold was fixed.
 
+## Screenshots
+
+An Arabic question answered from an English document, with its source:
+
+![An Arabic question about remote work, answered in Arabic and citing the English Remote Work Policy](docs/images/ask-arabic.png)
+
+A question the documents cannot answer is refused, in English and Arabic:
+
+![A question about bereavement leave, refused because the documents do not contain the answer](docs/images/refusal.png)
+
+The documents a user may read, filtered by their access levels (an admin sees all 32):
+
+![The Documents tab listing documents with their language, format and access level](docs/images/documents.png)
+
 ## Architecture
 
 ```text
